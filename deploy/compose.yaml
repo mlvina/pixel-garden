@@ -1,0 +1,27 @@
+# Шаблон для справки: update.sh этот файл НЕ трогает. В свой compose добавьте только VAPID_SUB.
+services:
+  plantgame:
+    image: node:22-alpine
+    container_name: plantgame
+    restart: unless-stopped
+    user: "1000:1000"
+    working_dir: /app
+    command: ["node", "server.js"]
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      DATA_DIR: /data
+      VAPID_SUB: "mailto:ваш@email.com"   # контакт для push-сервисов Google/Mozilla/Apple
+    volumes:
+      - ./app:/app:ro
+      - ./data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    networks: [caddy_net]
+
+networks:
+  caddy_net:
+    external: true
+    name: proxy

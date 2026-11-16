@@ -1,0 +1,23 @@
+plantgame.mivina.duckdns.org {
+	encode zstd gzip
+	root * /srv/sites/plantgame
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	request_body {
+		max_size 4KB
+	}
+
+	handle /api/* {
+		reverse_proxy plantgame:3000
+	}
+	handle {
+		header Cache-Control "no-cache"   # после обновления браузер сразу берёт новые файлы
+		file_server
+	}
+}

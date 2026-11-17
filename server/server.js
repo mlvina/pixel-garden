@@ -1,18 +1,24 @@
 'use strict';
-// Pixel Garden — авторитетный сервер. Клиент шлёт только «намерения» (посадить/полить/собрать/купить),
+// Pixel Garden — авторитетный сервер. Клиент шлёт только «намерения» (посадить/полить/собрать/купить/ник),
 // а все числа (время, рост, цены, редкость, награды) считает и хранит сервер. Зависимостей нет.
 const http = require('node:http');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const openStore = require('./store');
+const runMod = require('./mod');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1'; // в Docker задаётся 0.0.0.0, порт наружу НЕ публикуется
+const ADMIN_PORT = Number(process.env.ADMIN_PORT) || 3001; // консоль модератора, только loopback внутри контейнера
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
-const DB = path.join(DATA_DIR, 'players.json');
 const MAX_PLAYERS = 20000;
-const PRUNE_MS = 60 * 864e5; // забываем игроков, не заходивших 60 дней
-fs.mkdirSync(DATA_DIR, { recursive: true });
+const PRUNE_MS = 60 * 864e5; // забываем игроков, не заходивших 60 дней (заблокированных не трогаем)
+const NICK_COOLDOWN = 864e5; // менять ник можно раз в сутки
+
+const store = openStore(DATA_DIR);
+const { players, touch } = store;
+const fail = store.fail;
 
 // ---------- баланс ----------
 const RAR = [ // w = вес выпадения, time = секунд полива до зрелости, val = цена
@@ -31,30 +37,8 @@ const COST = {
 const lvl = (P, k) => (k === 'slot' ? P.plants.length : P[k]);
 const capSec = P => 180 + 120 * P.tank; // сколько секунд хватает полной воды
 
-// ---------- хранилище ----------
-const players = new Map();
-try {
-  for (const [k, v] of Object.entries(JSON.parse(fs.readFileSync(DB, 'utf8')))) players.set(k, v);
-} catch { /* первый запуск */ }
-let dirty = false;
-function save() {
-  if (!dirty) return;
-  dirty = false;
-  const tmp = DB + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(players)));
-  fs.renameSync(tmp, DB); // атомарная замена — файл не побьётся при падении
-}
-setInterval(save, 5000);
-setInterval(() => {
-  const old = Date.now() - PRUNE_MS;
-  for (const [k, P] of players) if (P.seen < old) { players.delete(k); dirty = true; }
-}, 36e5);
-for (const s of ['SIGTERM', 'SIGINT']) process.on(s, () => { save(); process.exit(0); });
-
 // ---------- игровая логика ----------
-const fail = m => { throw { user: m }; };
 const sha = t => crypto.createHash('sha256').update(t).digest('hex');
-
 function rollRarity(luck) {
   const w = RAR.map((r, i) => r.w * (1 + 0.35 * luck) ** i);
   let x = (crypto.randomInt(1e6) / 1e6) * w.reduce((a, b) => a + b);
@@ -83,6 +67,7 @@ function view(P) {
   return {
     coins: P.coins, tank: P.tank, luck: P.luck, slots: P.plants.length, capSec: capSec(P),
     grace: GRACE, warn: WARN, push: !!P.push, max: MAX,
+    nick: P.nick, nickLock: !!P.nickLock, nickWait: P.nick ? Math.max(0, Math.ceil((P.nickAt + NICK_COOLDOWN - now) / 1000)) : 0,
     lv: { slot: P.plants.length, tank: P.tank, luck: P.luck },
     cost: { seed: SEED_COST, slot: next('slot'), tank: next('tank'), luck: next('luck') },
     plants: P.plants.map(p => p && {
@@ -125,7 +110,7 @@ function act(P, b) {
       if (!p) fail('Грядка пуста');
       if (p.dead) fail('Растение засохло');
       if (p.g < 1) fail('Растение ещё не выросло');
-      P.coins += value(p); P.plants[i] = null; break;
+      const v = value(p); P.coins += v; P.earned += v; P.harvests++; P.plants[i] = null; break;
     }
     case 'upgrade': {
       const k = b.kind;
@@ -138,8 +123,26 @@ function act(P, b) {
       if (k === 'slot') P.plants.push(null); else P[k]++;
       break;
     }
+    case 'nick': {
+      if (P.nickLock) fail('Смена ника запрещена модератором');
+      if (P.nick && now < P.nickAt + NICK_COOLDOWN) fail('Ник можно менять раз в сутки');
+      const n = store.checkNick(b.nick);
+      if (P.nick === n) fail('Это ваш текущий ник');
+      store.setNick(P, n); break;
+    }
     default: fail('Неизвестное действие');
   }
+}
+
+// ---------- таблица лидеров (кэш на 10 с) ----------
+let topCache = { t: 0, list: [] };
+function top() {
+  if (Date.now() - topCache.t > 10000) {
+    const list = [...players.values()].filter(P => P.nick && !P.banned && P.earned > 0)
+      .sort((a, b) => b.earned - a.earned).slice(0, 10).map(P => ({ nick: P.nick, earned: P.earned }));
+    topCache = { t: Date.now(), list };
+  }
+  return topCache.list;
 }
 
 // ---------- push-уведомления (Web Push + VAPID, без payload) ----------
@@ -174,22 +177,31 @@ async function sendPush(P) {
       method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(8000),
       headers: { Authorization: `vapid t=${head}.${sig}, k=${vapid.pub}`, TTL: '600', Urgency: 'high' },
     });
-    if (r.status === 404 || r.status === 410) { P.push = null; dirty = true; } // подписка отозвана
+    if (r.status === 404 || r.status === 410) { P.push = null; touch(P); } // подписка отозвана
   } catch { /* сеть недоступна — попробуем при следующей проверке */ }
 }
 setInterval(() => { // раз в 30 с проверяем только игроков с уведомлениями
   const now = Date.now();
   for (const P of players.values()) {
-    if (!P.push) continue;
+    if (!P.push || P.banned) continue;
     let need = false;
     for (const p of P.plants) {
       if (!p) continue;
       sim(P, p, now);
-      if (!p.dead && p.d && !p.nw && now >= p.d + (GRACE - WARN) * 1000) { p.nw = 1; need = true; dirty = true; }
+      if (!p.dead && p.d && !p.nw && now >= p.d + (GRACE - WARN) * 1000) { p.nw = 1; need = true; touch(P); }
     }
     if (need) sendPush(P);
   }
 }, 30000);
+
+// ---------- обслуживание ----------
+setInterval(store.flush, 5000);
+setInterval(() => { try { store.backup(); } catch (e) { console.error('backup:', e.message); } }, 864e5);
+setInterval(() => {
+  const old = Date.now() - PRUNE_MS;
+  for (const P of [...players.values()]) if (P.seen < old && !P.banned) store.remove(P.id);
+}, 36e5);
+for (const s of ['SIGTERM', 'SIGINT']) process.on(s, () => { store.flush(); process.exit(0); });
 
 // ---------- защита от флуда ----------
 const bucket = new Map(), regLog = new Map();
@@ -212,7 +224,7 @@ setInterval(() => {
   for (const [k, a] of regLog) if (!a.some(t => now - t < 36e5)) regLog.delete(k);
 }, 6e4);
 
-// Caddy перезаписывает X-Forwarded-For адресом клиента; берём последнее значение
+// Caddy перезаписывает X-Forwarded-For адресом клиента; берём последнее значение. IP нигде не сохраняются.
 const ipOf = req => { const x = req.headers['x-forwarded-for']; return x ? x.split(',').pop().trim() : req.socket.remoteAddress; };
 
 function readBody(req) {
@@ -243,27 +255,32 @@ const server = http.createServer(async (req, res) => {
     if (url === '/api/register') {
       if (players.size >= MAX_PLAYERS) return send(res, 503, { error: 'Сервер переполнен' });
       if (!regAllowed(ipOf(req))) return send(res, 429, { error: 'Слишком много регистраций' });
-      const token = crypto.randomBytes(32).toString('hex');
-      players.set(sha(token), { coins: 20, tank: 0, luck: 0, seen: Date.now(), plants: [null, null] });
-      dirty = true;
+      const token = crypto.randomBytes(32).toString('hex'), now = Date.now();
+      store.add({
+        id: sha(token), nick: null, nickAt: 0, nickLock: 0, coins: 20, earned: 0, harvests: 0, tank: 0, luck: 0,
+        plants: [null, null], push: null, created: now, seen: now, banned: 0, banReason: null,
+      });
       return send(res, 200, { token }); // на сервере хранится только хеш токена
     }
 
     const m = /^Bearer ([0-9a-f]{64})$/.exec(req.headers.authorization || '');
     const P = m && players.get(sha(m[1]));
     if (!P) return send(res, 401, { error: 'Нужна авторизация' });
-    P.seen = Date.now();
+    if (P.banned) return send(res, 403, { error: 'Аккаунт заблокирован' + (P.banReason ? ': ' + P.banReason : '') });
+    const now = Date.now();
+    if (now - P.seen > 3e5) touch(P); // время захода пишем в БД не чаще раза в 5 минут
+    P.seen = now;
 
     if (url === '/api/push/key') return send(res, 200, { key: vapid.pub });
     if (url === '/api/push/on') {
       if (typeof b.endpoint !== 'string' || !pushOk(b.endpoint)) fail('Этот браузер не поддерживается');
-      P.push = b.endpoint; dirty = true;
+      P.push = b.endpoint; touch(P);
       return send(res, 200, view(P));
     }
-    if (url === '/api/push/off') { P.push = null; dirty = true; return send(res, 200, view(P)); }
-
+    if (url === '/api/push/off') { P.push = null; touch(P); return send(res, 200, view(P)); }
     if (url === '/api/state') return send(res, 200, view(P));
-    if (url === '/api/act') { act(P, b); dirty = true; return send(res, 200, view(P)); }
+    if (url === '/api/top') return send(res, 200, { top: top() });
+    if (url === '/api/act') { act(P, b); touch(P); return send(res, 200, view(P)); }
     send(res, 404, { error: 'Не найдено' });
   } catch (e) {
     if (e && e.user) return send(res, 400, { error: e.user });
@@ -272,4 +289,20 @@ const server = http.createServer(async (req, res) => {
 });
 server.requestTimeout = 10000;
 server.headersTimeout = 5000;
-server.listen(PORT, HOST, () => console.log(`Pixel Garden API on http://${HOST}:${PORT}`));
+server.listen(PORT, HOST, () => console.log(`Pixel Garden API on http://${HOST}:${PORT} (игроков: ${players.size})`));
+
+// ---------- консоль модератора: только 127.0.0.1 внутри контейнера, снаружи недоступна ----------
+http.createServer((req, res) => {
+  const chunks = []; let n = 0;
+  req.on('data', d => { n += d.length; if (n > 4096) req.destroy(); else chunks.push(d); });
+  req.on('end', () => {
+    let code = 200, out;
+    try {
+      const { args } = JSON.parse(Buffer.concat(chunks));
+      if (!Array.isArray(args) || !args.every(a => typeof a === 'string')) fail('Некорректные аргументы');
+      out = runMod(args, store);
+    } catch (e) { code = 400; out = e && e.user ? e.user : 'Ошибка команды'; if (!(e && e.user)) console.error(e); }
+    res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(out);
+  });
+}).listen(ADMIN_PORT, '127.0.0.1');

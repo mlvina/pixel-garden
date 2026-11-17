@@ -143,7 +143,7 @@ async function ensure() {
 
 // ---------- интерфейс (только textContent, никакого innerHTML) ----------
 const el = (t, c) => { const e = document.createElement(t); if (c) e.className = c; return e; };
-let S = null, cards = [], shop = null, toastT, pushBusy = false;
+let S = null, cards = [], shop = null, board = null, top = null, banned = false, toastT, pushBusy = false;
 const left = p => (p && p.l != null ? Math.max(0, p.l - (Date.now() - S.at) / 1000) : null);
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const bar = cls => { const b = el('div', 'bar ' + cls), i = el('div'); b.append(i); return { b, i }; };
@@ -222,9 +222,53 @@ function render() {
     u.b.textContent = cost == null ? 'Максимум' : `Улучшить · ${cost}`;
     u.b.disabled = cost == null || S.coins < cost;
   }
+  renderBoard();
   shop.nb.textContent = !canPush() ? 'Уведомления: нужен https' : S.push ? 'Уведомления: вкл' : 'Уведомлять о засыхании';
   shop.nb.disabled = !canPush();
   shop.hint.textContent = `Без воды растение засыхает через ${S.grace / 60} мин. Уведомление придёт за ${S.warn / 60} мин до этого.`;
+}
+
+// ---------- ник и лидеры ----------
+function mkBoard() {
+  const root = $('board'), b = {}, title = el('div', 'ttl');
+  title.textContent = 'Лидеры';
+  b.list = el('ol', 'rank'); b.in = el('input'); b.btn = el('button', 'sec'); b.hint = el('p', 'hint');
+  b.in.maxLength = 16; b.in.autocomplete = 'off'; b.in.placeholder = 'Ваш ник'; b.in.setAttribute('aria-label', 'Ник');
+  b.in.onkeydown = e => { if (e.key === 'Enter') saveNick(); };
+  b.btn.onclick = saveNick;
+  root.append(title, b.list, b.in, b.btn, b.hint);
+  return b;
+}
+async function saveNick() {
+  if (await act('nick', { nick: board.in.value.trim() })) { toast('Ник сохранён', true); loadTop(); }
+}
+function renderBoard() {
+  board = board || mkBoard();
+  $('who').textContent = S.nick || '';
+  const locked = S.nickLock || S.nickWait > 0;
+  if (document.activeElement !== board.in) board.in.value = S.nick || '';
+  board.in.disabled = locked;
+  board.btn.disabled = locked;
+  board.btn.textContent = S.nick ? 'Сменить ник' : 'Взять ник';
+  board.hint.textContent = S.nickLock ? 'Смена ника запрещена модератором.'
+    : S.nickWait > 0 ? `Менять ник можно раз в сутки: ещё ${Math.ceil(S.nickWait / 3600)} ч.`
+    : 'Ник: 3–16 символов, латиница или кириллица, цифры, _ и -. Виден всем.';
+  board.list.replaceChildren();
+  if (!top || !top.length) { const li = el('li'); li.textContent = 'Пока пусто — задайте ник и соберите урожай.'; board.list.append(li); return; }
+  top.forEach((t, i) => {
+    const li = el('li', t.nick === S.nick ? 'me' : ''), n = el('span'), v = el('b');
+    n.textContent = `${i + 1}. ${t.nick}`; v.textContent = t.earned;
+    li.append(n, v); board.list.append(li);
+  });
+}
+async function loadTop() {
+  if (banned || !token) return;
+  try { top = (await api('top')).top; if (S) renderBoard(); } catch { /* не критично */ }
+}
+function ban(msg) {
+  banned = true; S = null;
+  const d = el('div', 'card px'); d.textContent = msg;
+  $('garden').replaceChildren(d);
 }
 
 // ---------- уведомления ----------
@@ -251,16 +295,19 @@ async function togglePush() {
 }
 
 async function refresh() {
+  if (banned) return;
   try { await ensure(); S = await api('state'); render(); }
-  catch (e) { if (e.status === 401) dropToken(); else toast(e.message); }
+  catch (e) { if (e.status === 403) ban(e.message); else if (e.status === 401) dropToken(); else toast(e.message); }
 }
 async function act(a, extra) {
   try { S = await api('act', { a, ...extra }); render(); return true; }
-  catch (e) { if (e.status === 401) dropToken(); toast(e.message); return false; }
+  catch (e) { if (e.status === 403) { ban(e.message); return false; } if (e.status === 401) dropToken(); toast(e.message); return false; }
 }
 
 logo();
 refresh();
 setInterval(refresh, 2000);
+setTimeout(loadTop, 1500);
+setInterval(loadTop, 20000);
 setInterval(() => { if (S) S.plants.forEach((p, i) => cards[i] && draw(cards[i].cv, p, Date.now())); }, 200);
 setInterval(() => { if (S) S.plants.forEach((_, i) => cards[i] && status(i)); }, 1000);

@@ -9,11 +9,14 @@
 <body>
 <header>
   <h1><canvas id="logo" role="img" aria-label="Pixel Garden"></canvas></h1>
-  <div id="coins" class="px"><i class="coin"></i><b id="coinN">0</b></div>
+  <div id="coins" class="px"><span id="who"></span><i class="coin"></i><b id="coinN">0</b></div>
 </header>
 <main>
   <section id="garden" aria-label="Грядки"></section>
-  <aside id="shop" class="px" aria-label="Лавка"></aside>
+  <div id="side">
+    <aside id="shop" class="px" aria-label="Лавка"></aside>
+    <aside id="board" class="px" aria-label="Лидеры"></aside>
+  </div>
 </main>
 <div id="toast" role="status"></div>
 <script src="game.js"></script>

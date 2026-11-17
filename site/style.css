@@ -13,7 +13,14 @@ h1{margin:0;line-height:0}
 .coin{width:14px;height:14px;background:var(--gold);box-shadow:inset -3px -3px 0 #d09a1e,inset 3px 3px 0 #fff0a0}
 main{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;max-width:1120px;margin:auto;padding:16px}
 #garden{flex:1 1 540px;display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:14px}
-#shop{flex:0 0 260px;display:flex;flex-direction:column;gap:12px;padding:16px}
+#side{flex:0 0 260px;display:flex;flex-direction:column;gap:14px}
+#shop,#board{display:flex;flex-direction:column;gap:12px;padding:16px}
+#who{color:var(--mint);max-width:14ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rank{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.rank li{display:flex;gap:8px}.rank li span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rank li b{color:var(--gold)}.rank li.me{color:var(--mint)}
+input{width:100%;padding:8px 10px;font:inherit;color:var(--ink);background:var(--lo);border:0;box-shadow:inset 2px 2px 0 var(--out),0 0 0 2px var(--out)}
+input:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .ttl{font-size:16px;color:var(--gold)}
 .card{--rc:#4b4a8c;display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 10px}
 .frame{padding:3px;background:var(--rc)}

@@ -143,7 +143,7 @@ async function ensure() {
 
 // ---------- интерфейс (только textContent, никакого innerHTML) ----------
 const el = (t, c) => { const e = document.createElement(t); if (c) e.className = c; return e; };
-let S = null, cards = [], shop = null, board = null, top = null, banned = false, toastT, pushBusy = false;
+let S = null, cards = [], shop = null, board = null, topList = null, banned = false, toastT, pushBusy = false;
 const left = p => (p && p.l != null ? Math.max(0, p.l - (Date.now() - S.at) / 1000) : null);
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const bar = cls => { const b = el('div', 'bar ' + cls), i = el('div'); b.append(i); return { b, i }; };
@@ -254,8 +254,8 @@ function renderBoard() {
     : S.nickWait > 0 ? `Менять ник можно раз в сутки: ещё ${Math.ceil(S.nickWait / 3600)} ч.`
     : 'Ник: 3–16 символов, латиница или кириллица, цифры, _ и -. Виден всем.';
   board.list.replaceChildren();
-  if (!top || !top.length) { const li = el('li'); li.textContent = 'Пока пусто — задайте ник и соберите урожай.'; board.list.append(li); return; }
-  top.forEach((t, i) => {
+  if (!topList || !topList.length) { const li = el('li'); li.textContent = 'Пока пусто — задайте ник и соберите урожай.'; board.list.append(li); return; }
+  topList.forEach((t, i) => {
     const li = el('li', t.nick === S.nick ? 'me' : ''), n = el('span'), v = el('b');
     n.textContent = `${i + 1}. ${t.nick}`; v.textContent = t.earned;
     li.append(n, v); board.list.append(li);
@@ -263,7 +263,7 @@ function renderBoard() {
 }
 async function loadTop() {
   if (banned || !token) return;
-  try { top = (await api('top')).top; if (S) renderBoard(); } catch { /* не критично */ }
+  try { topList = (await api('top')).top; if (S) renderBoard(); } catch { /* не критично */ }
 }
 function ban(msg) {
   banned = true; S = null;

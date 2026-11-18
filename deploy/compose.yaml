@@ -1,4 +1,4 @@
-# Шаблон для справки: update.sh этот файл НЕ трогает. В свой compose добавьте только VAPID_SUB.
+# Шаблон для справки: update.sh этот файл НЕ трогает. В свой compose добавьте только строки VAPID_SUB и GAME_TZ.
 services:
   plantgame:
     image: node:22-alpine
@@ -11,6 +11,7 @@ services:
       HOST: "0.0.0.0"
       PORT: "3000"
       DATA_DIR: /data
+      GAME_TZ: "Europe/Berlin"             # по этому часовому поясу в игре день и ночь
       VAPID_SUB: "mailto:ваш@email.com"   # контакт для push-сервисов Google/Mozilla/Apple
     volumes:
       - ./app:/app:ro

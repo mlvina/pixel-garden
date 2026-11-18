@@ -1,5 +1,7 @@
 'use strict';
 // Команды модератора. Запускаются на сервере:  garden <команда>   (см. admin.js и deploy/garden.sh)
+const crypto = require('node:crypto');
+const auth = require('./auth');
 const fail = m => { throw { user: m }; };
 const pad = (a, n) => String(a).padEnd(n);
 const short = P => P.id.slice(0, 8);
@@ -22,6 +24,7 @@ const HELP = `Команды (на сервере: garden <команда>):
   clearnick <ник|id>            убрать ник и запретить его менять
   allownick <ник|id>            снова разрешить менять ник
   give <ник|id> <число>         выдать монеты (минус — забрать)
+  passwd <ник|id>               сбросить пароль (выдаст новый временный) и выйти со всех устройств
   delete <ник|id> yes           удалить аккаунт навсегда
   badword add|del|list [слово]  запрещённые слова в никах
   log [N]                       журнал действий модератора
@@ -68,7 +71,9 @@ module.exports = function run(a, store) {
         `создан:    ${when(P.created)}`, `заходил:   ${ago(P.seen)} назад`,
         `монеты:    ${P.coins}   заработано: ${P.earned}   сборов: ${P.harvests}`,
         `грядок:    ${P.plants.length}   бак: ${P.tank}   удача: ${P.luck}`,
-        `растения:  ${pl.length} (засохло: ${pl.filter(p => p.dead).length})`, `уведомления: ${P.push ? 'вкл' : 'выкл'}`,
+        `растения:  ${pl.length} (засохло: ${pl.filter(p => p.dead).length}), в питомнике: ${P.nursery.length}`,
+        `урожаи:    ${P.stats.hr.join('/')} (обыч/необыч/ред/эпик/лега)   засохло: ${P.stats.wilt}   выкопано: ${P.stats.dug}   потрачено: ${P.stats.spent}`,
+        `пароль:    ${P.pass ? 'задан' : 'НЕТ (старый анонимный аккаунт)'}   устройств: ${store.sessionCount(P.id)}`, `уведомления: ${P.push ? 'вкл' : 'выкл'}`,
         P.banned ? `СТАТУС:    ЗАБЛОКИРОВАН${P.banReason ? ' — ' + P.banReason : ''}` : 'статус:    активен'].join('\n');
     }
     case 'ban': {
@@ -92,6 +97,11 @@ module.exports = function run(a, store) {
       const P = target(), n = Number(a[2]);
       if (!Number.isInteger(n) || Math.abs(n) > 1e9) fail('Укажите целое число монет');
       P.coins = Math.max(0, P.coins + n); store.touch(P); store.log('give', who(P), String(n)); return `${who(P)}: теперь ${P.coins} монет`;
+    }
+    case 'passwd': {
+      const P = target(), np = crypto.randomBytes(9).toString('base64url');
+      P.pass = auth.hashSync(np); store.touch(P); store.sessionsDelPid(P.id); store.log('passwd', who(P));
+      return `Новый временный пароль для ${who(P)}: ${np}\nПередайте его игроку — он сможет сменить пароль в игре.`;
     }
     case 'delete': {
       const P = target();

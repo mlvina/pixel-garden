@@ -9,16 +9,16 @@
 <body>
 <header>
   <h1><canvas id="logo" role="img" aria-label="Pixel Garden"></canvas></h1>
-  <div id="coins" class="px"><span id="who"></span><i class="coin"></i><b id="coinN">0</b></div>
+  <div id="clock" class="chip"></div>
+  <div id="hud"></div>
 </header>
 <main>
   <section id="garden" aria-label="Грядки"></section>
-  <div id="side">
-    <aside id="shop" class="px" aria-label="Лавка"></aside>
-    <aside id="board" class="px" aria-label="Лидеры"></aside>
-  </div>
+  <aside id="side" aria-label="Панель"></aside>
 </main>
+<div id="overlay" hidden></div>
 <div id="toast" role="status"></div>
+<script src="gen.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

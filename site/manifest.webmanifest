@@ -1,0 +1,26 @@
+{
+ "name": "Pixel Garden",
+ "short_name": "Garden",
+ "description": "Пиксельная idle-игра про растения",
+ "start_url": "/",
+ "scope": "/",
+ "display": "standalone",
+ "orientation": "portrait",
+ "background_color": "#352b46",
+ "theme_color": "#352b46",
+ "lang": "ru",
+ "icons": [
+  {
+   "src": "img/icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "img/icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "any"
+  }
+ ]
+}

@@ -1,6 +1,7 @@
 // Service worker: показывает уведомление, когда сервер присылает push (даже при закрытой вкладке).
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', () => {}); // пустой обработчик: без него некоторые браузеры не предлагают установку как приложение
 self.addEventListener('push', e => {
   e.waitUntil(self.registration.showNotification('Pixel Garden', {
     body: 'Растение скоро засохнет — полейте его!', tag: 'wilt', renotify: true,

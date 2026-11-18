@@ -4,8 +4,8 @@ plantgame.mivina.duckdns.org {
 
 	header {
 		Strict-Transport-Security "max-age=31536000"
-		# media-src нужен для звуков игры
-		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		# media-src — звуки, manifest-src — установка как приложение
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; manifest-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 		X-Content-Type-Options nosniff
 		Referrer-Policy no-referrer
 		-Server

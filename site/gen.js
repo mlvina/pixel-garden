@@ -133,6 +133,15 @@ function gen(seed, rar) {
   px.sort((a, b) => a.l - b.l);
   const sp = []; // искры у редких растений
   if (rar >= 2) for (let i = 0; i < (rar - 1) * 3; i++) { const q = px[(R() * px.length) | 0]; sp.push({ x: q.x + ((R() * 9 - 4) | 0), y: q.y + ((R() * 9 - 4) | 0), o: (R() * 3) | 0 }); }
+  // контур: тёмная обводка (читаемость на любом небе); появляется вместе с ближайшим пикселем растения
+  const occ = new Map(), outl = new Map();
+  for (const q of px) { const k = q.x * 100 + q.y; occ.set(k, Math.min(occ.has(k) ? occ.get(k) : 9, q.t)); }
+  for (const q of px) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const x = q.x + dx, y = q.y + dy, k = x * 100 + y;
+    if (x < 0 || x >= W || y < 0 || y > B || occ.has(k)) continue;
+    const o = outl.get(k); if (!o || q.t < o.t) outl.set(k, { x, y, c: 'rgba(43,24,25,.6)', t: q.t, l: -1 });
+  }
+  px.unshift(...outl.values());
   const res = { px, sp, kind, aura: pal.aura, pal: pal.name };
   cache.set(key, res);
   return res;

@@ -1,28 +1,29 @@
 'use strict';
-// Клиент: только отрисовка и отправка намерений. Рост, вода, цены, редкость, ники и пароли решает сервер.
+// Клиент: сцена-мастерская, меню и книга. Рост, вода, цены, редкость, геном, питомцы и пароли решает сервер.
 const $ = id => document.getElementById(id);
-function h(tag, props, ...kids) { // помощник для DOM; текст всегда через textNode (никакого innerHTML)
+function h(tag, props, ...kids) { // текст всегда через textNode — никакого innerHTML
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(props || {})) {
     if (v == null || v === false) continue;
-    if (k === 'class') e.className = v; else if (k.startsWith('on')) e[k] = v; else if (k === 'style') Object.assign(e.style, v);
-    else if (k in e) e[k] = v; else e.setAttribute(k, v);
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e[k] = v; else if (k === 'style') Object.assign(e.style, v); else if (k in e) e[k] = v; else e.setAttribute(k, v);
   }
   const add = c => { if (c == null || c === false) return; if (Array.isArray(c)) c.forEach(add); else e.append(c instanceof Node ? c : document.createTextNode(String(c))); };
-  kids.forEach(add);
-  return e;
+  kids.forEach(add); return e;
 }
 const ls = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* */ } } };
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const NAMES = {
   seed: { basic: ['Садовое семя', 'всегда бесплатно'], select: ['Отборное семя', ''], rare: ['Редкое семя', ''], royal: ['Королевское семя', ''], myth: ['Мифическое семя', ''] },
   fert: { compost: 'Компост', bio: 'Био-удобрение', nectar: 'Нектар роста' },
-  upg: { slot: ['Грядки', 'больше горшков'], tank: ['Бак', 'воды хватает дольше'], luck: ['Удача', 'чаще редкие семена'], nurs: ['Питомник', 'места для выкопанных'], lamp: ['Лампа роста', 'ночью растёт быстрее'], mulch: ['Мульча', 'меньше расход воды'] },
-  pot: ['Глиняный', 'Синяя глазурь', 'Золотой', 'Кристальный'], phase: { night: 'Ночь', dusk: 'Сумерки', day: 'День' },
+  upg: { slot: ['Грядки', 'больше горшков'], tank: ['Бак', 'воды хватает дольше'], luck: ['Удача', 'чаще редкие семена'], nurs: ['Питомник', 'места для выкопанных'], lamp: ['Лампа роста', 'ночью растёт быстрее'], mulch: ['Мульча', 'меньше расход воды'], bk: ['Банк семян', '+2 места для гибридов'] },
+  phase: { night: 'Ночь', dusk: 'Сумерки', day: 'День' },
 };
-const SHORT = { seed: { basic: 'Садовое', select: 'Отборное', rare: 'Редкое', royal: 'Королев.', myth: 'Мифич.' }, fert: { compost: 'Компост', bio: 'Био', nectar: 'Нектар' } };
-const POTS = [['#c97a4a', '#e09a66', '#a85f38'], ['#4f86c6', '#7fb0e8', '#3b6aa0'], ['#e8b830', '#fff0a0', '#c08a18'], ['#6fd6e8', '#d8fbff', '#3aa5c0']];
-const DEAD = ['#6b5a3a', '#5a4a30', '#7a6842'];
+const SHORT = { seed: { basic: 'Садовое', select: 'Отборное', rare: 'Редкое', royal: 'Королев.', myth: 'Мифич.' } };
+const POTN = ['Глиняный горшок', 'Медный котёл', 'Стеклянный террариум', 'Каменная ваза', 'Золотая урна'];
+const POTD = ['Без бонусов', 'Воды уходит на 15% меньше', 'Растёт на 10% быстрее', 'Терпит засуху на 50% дольше', 'Урожай дороже на 10%'];
+const PETN = { fish: ['Рыбки', 'живут в аквариуме'], cat: ['Кошка', 'дремлет на окне'], dog: ['Собака', 'сторожит ковёр'], seal: ['Тюлень', 'плавает в аквариуме'] };
+const PETO = ['fish', 'cat', 'dog', 'seal'];
+const HOTS = { tank: [8, 96, 96, 46], cat: [44, 60, 22, 22], dog: [300, 160, 26, 24], book: [106, 104, 30, 20], lab: [304, 98, 30, 24], shelf: [326, 38, 58, 62] };
 
 // ---------- звук и вибрация ----------
 const SFX = {}; let sound = ls.get('pg_sound', true);
@@ -31,111 +32,24 @@ const play = n => { if (!sound || !SFX[n]) return; try { SFX[n].currentTime = 0;
 const vib = ms => { if (sound) try { navigator.vibrate && navigator.vibrate(ms); } catch { /* */ } };
 document.addEventListener('click', e => { if (e.target.closest && e.target.closest('button')) { play('click'); vib(8); } });
 
-// ---------- логотип: свой пиксельный шрифт 5×7 ----------
+// ---------- логотип ----------
 const FONT = { P: [30, 17, 17, 30, 16, 16, 16], I: [14, 4, 4, 4, 4, 4, 14], X: [17, 17, 10, 4, 10, 17, 17], E: [31, 16, 16, 30, 16, 16, 31], L: [16, 16, 16, 16, 16, 16, 31], G: [14, 17, 16, 19, 17, 17, 14], A: [14, 17, 17, 31, 17, 17, 17], R: [30, 17, 17, 30, 20, 18, 17], D: [30, 17, 17, 17, 17, 17, 30], N: [17, 25, 21, 19, 17, 17, 17], ' ': [0, 0, 0, 0, 0, 0, 0] };
 function logo(cv, dark) {
   const t = 'PIXEL GARDEN', cols = dark ? ['#b75b5f', '#493333', '#9c4351', '#493333'] : ['#ffd071', '#ffd7a8', '#e5b67f', '#ffd7a8'];
-  cv.width = t.length * 6 + 1; cv.height = 8;
-  const c = cv.getContext('2d');
-  for (let pass = 1; pass >= 0; pass--) [...t].forEach((ch, i) => FONT[ch].forEach((row, y) => {
-    for (let x = 0; x < 5; x++) if ((row >> (4 - x)) & 1) { c.fillStyle = pass ? (dark ? '#ffb347' : '#1d1424') : (y < 3 || dark ? cols[i % 4] : '#e5b67f'); c.fillRect(i * 6 + x + pass, y + pass, 1, 1); }
-  }));
+  cv.width = t.length * 6 + 1; cv.height = 8; const c = cv.getContext('2d');
+  for (let pass = 1; pass >= 0; pass--) [...t].forEach((ch, i) => FONT[ch].forEach((row, y) => { for (let x = 0; x < 5; x++) if ((row >> (4 - x)) & 1) { c.fillStyle = pass ? (dark ? '#ffb347' : '#1d1424') : (y < 3 || dark ? cols[i % 4] : '#e5b67f'); c.fillRect(i * 6 + x + pass, y + pass, 1, 1); } }));
 }
 
-// ---------- сцена: плавная смена неба, холмы, облака, светлячки, птицы ----------
-const rgb = c => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
-const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-const css = a => `rgb(${a[0] | 0},${a[1] | 0},${a[2] | 0})`;
-const NIGHT = ['#0d0d2b', '#14143a', '#1c1b4a', '#26255c', '#302e6e', '#3a3880'], DAWN = ['#4a3a7a', '#7a4a8a', '#b85a86', '#e87a7a', '#ff9a6b', '#ffc27a'];
-const DAY = ['#3c9be0', '#58b0ea', '#74c3f0', '#92d3f5', '#b0e1f8', '#cdeefb'], DUSK = ['#2f2a6a', '#523c88', '#8a4a8a', '#c9627e', '#f08a6a', '#ffb070'];
-const KEYS = [[0, NIGHT], [5, NIGHT], [6.6, DAWN], [8.6, DAY], [17.5, DAY], [20, DUSK], [21.8, NIGHT], [24, NIGHT]].map(([hh, b]) => [hh, b.map(rgb)]);
-function skyBands(hr) {
-  let i = 1; while (i < KEYS.length - 1 && hr >= KEYS[i][0]) i++;
-  const [h0, b0] = KEYS[i - 1], [h1, b1] = KEYS[i], t = Math.min(1, Math.max(0, (hr - h0) / (h1 - h0)));
-  return b0.map((c, k) => mix(c, b1[k], t));
-}
-const nightF = hr => (hr >= 21.5 || hr < 5 ? 1 : hr < 7 ? (7 - hr) / 2 : hr >= 19.5 ? (hr - 19.5) / 2 : 0);
-const mkCv = (w, hh) => { const c = document.createElement('canvas'); c.width = w; c.height = hh; return c; };
-const BG = mkCv(48, 64), STATIC = mkCv(48, 64);
-function renderBg(c, hr, tm) {
-  const f = (x, y, w, hh, col) => { c.fillStyle = col; c.fillRect(x, y, w, hh); }, nf = nightF(hr), bands = skyBands(hr);
-  bands.forEach((b, i) => f(0, i * 9, 48, 9, css(b)));
-  if (nf > 0.05) { c.fillStyle = '#fff'; for (let i = 0; i < 16; i++) { c.globalAlpha = nf * ((((tm / 600) | 0) + i) % 5 ? 1 : 0.35); c.fillRect((i * 37 + 11) % 48, (i * 23 + 5) % 34, 1, 1); } c.globalAlpha = 1; }
-  if (hr >= 5.5 && hr < 20.7) { // солнце идёт по дуге и садится за холмы
-    const t = Math.min(1, Math.max(0, (hr - 5.8) / 14.6)), sx = 4 + t * 38, sy = 32 - Math.sin(Math.PI * t) * 22;
-    f(sx - 1, sy - 1, 7, 7, `rgba(255,230,120,${0.22 + 0.08 * Math.sin(tm / 700)})`); f(sx, sy, 5, 5, '#ffe27a'); f(sx + 1, sy + 1, 3, 3, '#fff6c0');
-  }
-  if (hr >= 19.5 || hr < 6.5) {
-    const t = Math.min(1, ((hr - 19.5 + 24) % 24) / 11), mx = 4 + t * 38, my = 32 - Math.sin(Math.PI * t) * 22;
-    c.globalAlpha = Math.min(1, nf + 0.3);
-    for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) if ((x - 2.5) ** 2 + (y - 2.5) ** 2 <= 7 && (x - 4) ** 2 + (y - 1.5) ** 2 > 5.5) f(mx + x, my + y, 1, 1, '#f4f0c8');
-    c.globalAlpha = 1;
-  }
-  const cc = css(mix([255, 255, 255], [70, 70, 130], nf));
-  [[0, 9, 10, 0.0045], [1, 20, 7, 0.003], [2, 28, 8, 0.002]].forEach(([o, y, w, sp]) => { const x = (((tm * sp + o * 23) % 66) | 0) - 14; f(x, y, w, 2, cc); f(x + 2, y - 1, w - 4, 1, cc); f(x + 1, y + 2, w - 2, 1, cc); });
-  c.fillStyle = css(mix(bands[5], [52, 74, 86], 0.5 + 0.25 * nf)); // дальние холмы
-  for (let x = 0; x < 48; x++) { const hh = Math.round(7 + 3 * Math.sin(x * 0.21 + 1) + 2 * Math.sin(x * 0.55)); c.fillRect(x, 51 - hh, 1, hh + 2); }
-  c.fillStyle = css(mix([63, 122, 74], [18, 34, 34], nf)); // ближние
-  for (let x = 0; x < 48; x++) { const hh = Math.round(3 + 2 * Math.sin(x * 0.3 + 2) + Math.sin(x * 0.7)); c.fillRect(x, 53 - hh, 1, hh + 1); }
-  if (nf > 0.4) for (let i = 0; i < 5; i++) { // светлячки
-    const a = tm / 800 + i * 2.1, on = Math.sin(tm / 350 + i * 3) > -0.3; if (!on) continue;
-    c.globalAlpha = nf; f(6 + i * 9 + Math.round(Math.sin(a) * 3), 44 + Math.round(Math.cos(a * 1.3) * 4), 1, 1, '#ffe97a'); c.globalAlpha = 1;
-  }
-  const bt = (tm / 1000) % 18; // птица раз в 18 секунд
-  if (nf < 0.3 && bt < 6) { const bx = Math.round(-4 + bt / 6 * 56), by = Math.round(13 + Math.sin(bt * 2) * 2), fl = ((tm / 180) | 0) % 2; f(bx, by + fl, 1, 1, '#33283a'); f(bx + 1, by + 1 - fl, 1, 1, '#33283a'); f(bx + 2, by + fl, 1, 1, '#33283a'); }
-}
-renderBg(STATIC.getContext('2d'), 12.5, 0);
-const auraCache = {};
-function auraCv(col) { // мягкое свечение: три вложенных круга, рисуются один раз
-  if (auraCache[col]) return auraCache[col];
-  const cv = mkCv(48, 64), c = cv.getContext('2d'); c.fillStyle = col;
-  for (const [r2, a] of [[440, 0.05], [270, 0.06], [130, 0.07]]) { c.globalAlpha = a; for (let y = 6; y < 58; y++) for (let x = 2; x < 46; x++) if ((x - 24) ** 2 + (y - 33) ** 2 < r2) c.fillRect(x, y, 1, 1); }
-  return (auraCache[col] = cv);
-}
-function potDraw(c, x0, pot, tm, off) {
-  const P = POTS[pot] || POTS[0], f = (x, y, w, hh, col) => { c.fillStyle = col; c.fillRect(x + off, y, w, hh); };
-  f(11, 54, 26, 3, P[0]); f(11, 54, 26, 1, P[1]); f(13, 57, 22, 4, P[2]);
-  if (pot === 3 && (((tm / 400) | 0) % 2)) { f(16, 58, 1, 1, '#fff'); f(30, 56, 1, 1, '#fff'); }
-  c.fillStyle = '#5b3d2a'; c.fillRect(0, 61, 48, 3); c.fillStyle = '#7a5238'; c.fillRect(0, 61, 48, 1);
-}
-function drawStatic(cv, p, pot) { // галерея, питомник, мини-сад: один раз, без анимации
-  const c = cv.getContext('2d'); c.drawImage(STATIC, 0, 0);
-  c.fillStyle = '#3b2a1c'; c.fillRect(12, 53, 24, 1);
-  const g = gen(p.seed, p.r), lim = p.g == null ? 1 : p.g;
-  for (const q of g.px) if (q.t <= lim) { c.fillStyle = p.x && q.l >= 0 ? DEAD[(q.x * 7 + q.y * 3) % 3] : q.c; c.fillRect(q.x, q.y, 1, 1); }
-  potDraw(c, 0, pot, 0, 0);
-}
-function getSprite(c, p, dg, tint) { // плотный спрайт растения кешируется и перерисовывается только при смене стадии
-  const key = `${p.seed}|${p.r}|${Math.floor(dg * 120)}|${p.x ? 1 : 0}|${Math.round(tint * 10)}`;
-  if (c.sk !== key) {
-    if (!c.spr) c.spr = mkCv(48, 54);
-    const s = c.spr.getContext('2d'), g = gen(p.seed, p.r); s.clearRect(0, 0, 48, 54);
-    for (const q of g.px) if (q.t <= dg) {
-      s.fillStyle = p.x && q.l >= 0 ? DEAD[(q.x * 7 + q.y * 3) % 3] : q.c; s.fillRect(q.x, q.y, 1, 1);
-      if (tint && q.l >= 0) { s.fillStyle = `rgba(170,120,40,${tint})`; s.fillRect(q.x, q.y, 1, 1); }
-    }
-    c.sk = key;
-  }
-  return c.spr;
-}
-function drawSway(x, spr, tm, k) { // ветер: верхушка сдвигается на 1–2 пикселя
-  if (k <= 0 || reduced) { x.drawImage(spr, 0, 0); return; }
-  const wind = 0.6 + 0.4 * Math.sin(tm / 3500);
-  for (let y = 0; y < 54; y++) { const lev = (53 - y) / 40, a = Math.min(2.2, 1.6 * lev * lev + lev * 0.4) * k * wind, sh = Math.round(Math.sin(tm / 1000 + y * 0.045) * a); x.drawImage(spr, 0, y, 48, 1, sh, y, 48, 1); }
-}
-
-// ---------- сеть ----------
-let token = null, cat = null, S = null, topData = null, topK = 'earned', tab = 'shop', view = 'garden', banned = false, busy = false;
+// ---------- сеть и состояние ----------
+let token = null, cat = null, S = null, topData = null, topK = 'earned', banned = false, busy = false, SC = 3;
 try { token = localStorage.getItem('pg_token'); } catch { /* приватный режим */ }
 const sel = ls.get('pg_sel', { seed: 'basic', fert: 'compost' });
 async function api(path, body) {
-  const hd = { 'Content-Type': 'application/json' };
-  if (token) hd.Authorization = 'Bearer ' + token;
+  const hd = { 'Content-Type': 'application/json' }; if (token) hd.Authorization = 'Bearer ' + token;
   const r = await fetch('/api/' + path, { method: 'POST', headers: hd, body: JSON.stringify(body || {}) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(j.error || 'Ошибка сети'); e.status = r.status; throw e; }
-  j.at = Date.now();
-  return j;
+  j.at = Date.now(); return j;
 }
 function setToken(t) { token = t; try { if (t) localStorage.setItem('pg_token', t); else localStorage.removeItem('pg_token'); } catch { /* */ } }
 const hourNow = () => (S ? (S.ph.hour + (Date.now() - S.at) / 3.6e6) % 24 : 12);
@@ -144,18 +58,18 @@ const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2
 let toastT;
 function toast(m, kind) { const t = $('toast'); t.textContent = m; t.className = kind || ''; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { t.style.display = 'none'; }, 2600); }
 function overlay(content) { const o = $('overlay'); o.replaceChildren(content); o.hidden = false; return o; }
-function closeOverlay() { $('overlay').hidden = true; $('overlay').replaceChildren(); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && token) closeOverlay(); });
+function closeOverlay() { $('overlay').hidden = true; $('overlay').replaceChildren(); document.removeEventListener('keydown', albumKeys); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && token) { if (!$('overlay').hidden) closeOverlay(); else closeSheet(); } });
 function fail(e) { if (e.status === 401) { setToken(null); S = null; showAuth('Войдите снова'); } else if (e.status === 403) ban(e.message); else toast(e.message, 'err'); }
 function ban(msg) { banned = true; S = null; overlay(h('div', { class: 'panel auth' }, h('h2', null, 'Доступ закрыт'), h('p', null, msg))); }
 
-// ---------- состояние с плавной интерполяцией ----------
-// Сервер присылает состояние раз в 2 с. Между ответами рост и воду «дорисовываем» по скорости, замеренной на прошлом интервале.
+// Сервер присылает состояние раз в 2 с. Между ответами рост и воду «дорисовываем» по скорости с прошлого интервала.
+let slotObj = [];
 function setState(ns) {
   const old = S; S = ns;
+  while (slotObj.length < ns.slots) slotObj.push({ rate: 0, wrate: 0, dg: 0, dw: 0, tint: 0 });
   ns.plants.forEach((p, i) => {
-    const c = cards[i]; if (!c) return;
-    const o = old && old.plants[i], dt = old ? (ns.at - old.at) / 1000 : 0;
+    const c = slotObj[i], o = old && old.plants[i], dt = old ? (ns.at - old.at) / 1000 : 0;
     if (!p || !o || o.seed !== p.seed) { c.rate = 0; c.wrate = 0; }
     else if (dt >= 0.8) { c.rate = p.g >= 1 ? 0 : Math.max(0, (p.g - o.g) / dt); c.wrate = p.w <= 0 ? 0 : Math.min(0, (p.w - o.w) / dt); }
   });
@@ -164,292 +78,240 @@ function setState(ns) {
 const dispG = (c, p) => (p.g >= 1 ? 1 : Math.min(0.9999, p.g + (c.rate || 0) * (Date.now() - S.at) / 1000));
 const dispW = (c, p) => (p.w <= 0 ? 0 : Math.max(0, p.w + (c.wrate || 0) * (Date.now() - S.at) / 1000));
 
-// ---------- вход и регистрация ----------
-function showAuth(msg) {
-  let mode = 'login';
-  const nick = h('input', { placeholder: 'Ник', maxLength: 16, autocomplete: 'username', autocapitalize: 'off', spellcheck: false, 'aria-label': 'Ник' });
-  const pass = h('input', { type: 'password', placeholder: 'Пароль (от 8 символов)', maxLength: 128, autocomplete: 'current-password', 'aria-label': 'Пароль' });
-  const err = h('div', { class: 'err' }, msg || ''), go = h('button', { class: 'btn', type: 'submit' }, 'Войти');
-  const tLogin = h('button', { class: 'btn alt', type: 'button' }, 'Вход'), tReg = h('button', { class: 'btn alt', type: 'button' }, 'Регистрация');
-  const setMode = m => { mode = m; go.textContent = m === 'login' ? 'Войти' : 'Создать аккаунт'; pass.autocomplete = m === 'login' ? 'current-password' : 'new-password'; tLogin.style.opacity = m === 'login' ? 1 : 0.6; tReg.style.opacity = m === 'reg' ? 1 : 0.6; err.textContent = ''; };
-  tLogin.onclick = () => setMode('login'); tReg.onclick = () => setMode('reg'); setMode('login');
-  const cv = h('canvas'); logo(cv, true);
-  const form = h('form', { onsubmit: async e => {
-    e.preventDefault(); err.textContent = ''; go.disabled = true;
-    try { setToken((await api(mode === 'login' ? 'login' : 'signup', { nick: nick.value, pass: pass.value })).token); closeOverlay(); banned = false; await refresh(); play('win'); }
-    catch (x) { err.textContent = x.message; } finally { go.disabled = false; }
-  } }, h('div', { class: 'row2' }, tLogin, tReg), nick, pass, err, go,
-  h('p', { class: 'hint' }, 'Пароль нельзя восстановить автоматически: если забудете, попросите администратора сбросить его.'));
-  overlay(h('div', { class: 'panel auth' }, cv, form)); nick.focus();
+// ---------- миниатюры растений (для меню, лаборатории, альбома) ----------
+const SKYT = ['#6cb4ea', '#86c6f0', '#a0d4f4', '#b8e0f8', '#cdeefb', '#dff2fb'];
+function thumb(cv, p, skin = 0) {
+  cv.width = 48; cv.height = 68; const c = cv.getContext('2d'), g = gen(p.seed, p.r), lim = p.g == null ? 1 : p.g;
+  SKYT.forEach((col, i) => { c.fillStyle = col; c.fillRect(0, i * 12, 48, 13); });
+  c.fillStyle = '#7aa88a'; for (let x = 0; x < 48; x++) c.fillRect(x, 44 - Math.round(5 + 3 * Math.sin(x * 0.2 + 1)), 1, 12); c.fillStyle = '#4a8a52'; for (let x = 0; x < 48; x++) c.fillRect(x, 52 - Math.round(2 + Math.sin(x * 0.3)), 1, 4);
+  c.fillStyle = '#6b4a2b'; c.fillRect(12, 53, 24, 2);
+  for (const q of g.px) if (q.t <= lim) { c.fillStyle = p.x && q.l >= 0 ? DEADC[(q.x * 7 + q.y * 3) % 3] : q.c; c.fillRect(q.x, q.y, 1, 1); }
+  drawPot(c, skin, 24, 52, 0, 0);
+}
+const kindOf = p => KINDS[gen(p.seed, p.r).kind];
+const seedLabel = s => `${s.gn ? `Гибрид п.${s.gn}` : 'Семя'} · ${RN[s.r]} · ${kindOf(s)}`;
+
+// ---------- эффекты: пиксельные частицы поверх сцены ----------
+function fxAt(x, y, type, arg, rar) {
+  if (reduced) return; const L = $('fxl'), k = SC / 3;
+  const add = (cls, st, txt) => { const e = h('i', { class: cls }, txt || null); e.style.setProperty('--x', x + (st.ox || 0)); e.style.setProperty('--y', y + (st.oy || 0)); for (const [kk, v] of Object.entries(st)) if (kk[0] === '-') e.style.setProperty(kk, v); L.append(e); e.addEventListener('animationend', () => e.remove(), { once: true }); setTimeout(() => e.remove(), 1700); };
+  const R = (a, b) => a + Math.random() * (b - a), burst = (n, cols, up, spread) => { for (let i = 0; i < n; i++) add('fp', { ox: R(-6, 6), '--c': cols[i % cols.length], '--dx': R(-spread, spread) * k + 'px', '--dy': -R(up * 0.4, up) * k + 'px', '--d': R(500, 900) + 'ms' }); };
+  if (type === 'water') for (let i = 0; i < 10; i++) add('fp', { ox: R(-12, 12), oy: -24, '--c': i % 3 ? '#7fb8ff' : '#cfe8ff', '--dx': R(-6, 6) * k + 'px', '--dy': R(40, 70) * k + 'px', '--d': R(450, 800) + 'ms' });
+  else if (type === 'plant') burst(9, ['#8fd860', '#5fae3c', '#b4f090'], 40, 18);
+  else if (type === 'fert') burst(12, ['#ffd071', '#fff0a0', '#8fd860'], 50, 24);
+  else if (type === 'dig') burst(10, ['#8a5a35', '#b9814f', '#5b3d2a'], 30, 22);
+  else if (type === 'cross') burst(16, ['#ff9ac8', '#ffd071', '#9fe8ff', '#fff'], 60, 30);
+  else if (type === 'coin') { add('ft', {}, `+${arg}`); burst(8, ['#ffd071', '#fff0a0', '#e8b830'], 44, 22); if (rar >= 2) for (let i = 0; i < 12 + rar * 4; i++) add('fp', { '--c': i % 2 ? RCL[rar] : '#fff', '--dx': R(-50, 50) * k + 'px', '--dy': R(-60, 20) * k + 'px', '--d': R(700, 1200) + 'ms' }); }
+  else if (type === 'love') for (let i = 0; i < 5; i++) add('fp', { ox: R(-8, 8), '--c': '#ff6a8a', '--dx': R(-14, 14) * k + 'px', '--dy': -R(18, 40) * k + 'px', '--d': R(700, 1100) + 'ms' });
+}
+const slotXY = i => [SLOTPOS[i][0], SLOTPOS[i][1] - 40];
+
+// ---------- сцена, интерактивные зоны, кадровый цикл ----------
+let ctx = null, E = { hr: 12, tm: 0, reduced, slots: [], pots: [], pets: {}, love: {} }, hotEls = {}, slotHot = [], lastF = 0, shownCoins = 0;
+function fitScale() {
+  const vw = innerWidth, vh = innerHeight, mob = vw <= 760;
+  SC = mob ? 2 : Math.max(2, Math.min(4, Math.floor(Math.min((vw - 30) / RW, (vh - 170) / RH))));
+  document.documentElement.style.setProperty('--s', SC);
+  if (mob && !fitScale.done) { fitScale.done = 1; $('stage').scrollLeft = Math.max(0, SLOTPOS[0][0] * SC - vw / 2); }
+}
+function buildHots() {
+  const hots = $('hots'); hots.replaceChildren(); slotHot = []; hotEls = {};
+  const mk = (cls, [x, y, w, hh], label, fn) => { const b = h('button', { class: 'hot ' + cls, 'aria-label': label, title: label, onclick: fn }, h('i', { class: 'badge', hidden: true })); for (const [k, v] of Object.entries({ x, y, w, h: hh })) b.style.setProperty('--' + k, v); hots.append(b); return b; };
+  for (const i of [...Array(S.slots).keys()].sort((a, b) => SLOTPOS[a][1] - SLOTPOS[b][1])) { const [cx, ty] = SLOTPOS[i]; slotHot[i] = mk('slot', [cx - 24, ty - 67, 48, 70], 'Грядка ' + (i + 1), () => openPotMenu(i)); }
+  hotEls.tank = mk('pethot', HOTS.tank, 'Аквариум', () => openPets()); hotEls.cat = mk('pethot', HOTS.cat, 'Кошка', () => petTap('cat')); hotEls.dog = mk('pethot', HOTS.dog, 'Собака', () => petTap('dog'));
+  hotEls.book = mk('', HOTS.book, 'Книга растений', () => openBook()); hotEls.lab = mk('', HOTS.lab, 'Лаборатория селекции', () => openLab()); hotEls.shelf = mk('', HOTS.shelf, 'Лавка', () => openShop());
+}
+function badge(el, cls, text) { const b = el.firstChild; b.hidden = !cls; b.className = 'badge ' + (cls || ''); if (text) el.title = text; }
+function updHots() {
+  S.plants.forEach((p, i) => {
+    const el = slotHot[i]; if (!el) return; const L = left(p), warn = !!p && !p.x && L != null && L <= cat.warn;
+    badge(el, !p ? 'sprout' : p.x ? 'shovel' : p.g >= 1 ? 'basket' : warn ? 'drop warn' : L != null ? 'drop' : '', !p ? `Грядка ${i + 1}: пусто` : `${RN[p.r]} · ${kindOf(p)}`);
+  });
+  const gifts = id => (S.pets[id] ? S.pets[id].gifts : 0);
+  badge(hotEls.cat, gifts('cat') ? 'coin' : (S.pets.cat && !S.pets.cat.fed ? 'bag warn' : ''), 'Кошка'); badge(hotEls.dog, gifts('dog') ? 'coin' : (S.pets.dog && !S.pets.dog.fed ? 'bag warn' : ''), 'Собака');
+  badge(hotEls.tank, gifts('fish') + gifts('seal') ? 'coin' : '', 'Аквариум');
+  hotEls.cat.style.display = S.pets.cat ? '' : 'none'; hotEls.dog.style.display = S.pets.dog ? '' : 'none';
+}
+function petEnv() { const o = {}; for (const id of PETO) if (S.pets[id]) o[id] = { fed: S.pets[id].fed > 0 }; return o; }
+function frame(ts) {
+  requestAnimationFrame(frame);
+  if (document.hidden || !S || ts - lastF < 33) return; lastF = ts;
+  const tm = Date.now(); E.hr = hourNow(); E.tm = tm; E.pots = S.slotPots; E.pets = petEnv();
+  E.slots = slotObj.slice(0, S.slots).map((s, i) => { const p = S.plants[i]; s.p = p; if (p) { s.dg = dispG(s, p); s.dw = dispW(s, p); const L = left(p); s.tint = p.x || L == null ? 0 : Math.min(0.55, 0.55 * (1 - L / p.gr)); } return s; });
+  renderRoom(ctx, E);
+  if (shownCoins !== S.coins) { const d = S.coins - shownCoins, step = Math.sign(d) * Math.max(1, Math.ceil(Math.abs(d) * 0.18)), prev = shownCoins; shownCoins = Math.abs(d) <= Math.abs(step) ? S.coins : shownCoins + step; $('coins').lastChild.textContent = shownCoins; if (shownCoins > prev && !reduced) { const cn = $('coins'); cn.classList.remove('bump'); void cn.offsetWidth; cn.classList.add('bump'); } }
 }
 
-// ---------- эффекты: пиксельные частицы поверх окна ----------
-function fx(c, type, arg, rar) {
-  if (reduced || !c) return;
-  const L = c.fxl, add = (cls, st, txt) => {
-    const e = h('i', { class: cls }, txt || null); for (const [k, v] of Object.entries(st)) e.style.setProperty(k, v);
-    L.append(e); e.addEventListener('animationend', () => e.remove(), { once: true }); setTimeout(() => e.remove(), 1600);
-  };
-  const R = (a, b) => a + Math.random() * (b - a), burst = (n, cols, up, spread) => { for (let i = 0; i < n; i++) add('fp', { '--x': R(30, 70) + '%', '--y': '70%', '--c': cols[i % cols.length], '--dx': R(-spread, spread) + 'px', '--dy': -R(up * 0.4, up) + 'px', '--d': R(500, 900) + 'ms' }); };
-  if (type === 'water') for (let i = 0; i < 10; i++) add('fp', { '--x': R(15, 85) + '%', '--y': '4%', '--c': i % 3 ? '#7fb8ff' : '#cfe8ff', '--dx': R(-8, 8) + 'px', '--dy': R(70, 130) + 'px', '--d': R(450, 800) + 'ms' });
-  else if (type === 'plant') burst(9, ['#8fd860', '#5fae3c', '#b4f090'], 50, 26);
-  else if (type === 'fert') burst(12, ['#ffd071', '#fff0a0', '#8fd860'], 70, 36);
-  else if (type === 'dig') burst(10, ['#8a5a35', '#b9814f', '#5b3d2a'], 40, 34);
-  else if (type === 'coin') {
-    add('ft', {}, `+${arg}`); burst(8, ['#ffd071', '#fff0a0', '#e8b830'], 60, 30);
-    if (rar >= 2) { const k = RCL[rar]; for (let i = 0; i < 12 + rar * 4; i++) add('fp', { '--x': '50%', '--y': '50%', '--c': i % 2 ? k : '#fff', '--dx': R(-70, 70) + 'px', '--dy': R(-90, 30) + 'px', '--d': R(700, 1200) + 'ms' }); }
-  }
-}
-
-// ---------- сад ----------
-let cards = [], io = null;
-if ('IntersectionObserver' in window) io = new IntersectionObserver(es => es.forEach(e => { if (e.target._c) e.target._c.vis = e.isIntersecting; }), { rootMargin: '120px' });
-function setBtn(btn, icon, text) { const k = icon + '|' + text; if (btn._k === k) return; btn._k = k; btn.replaceChildren(icon ? h('i', { class: 'ico ' + icon }) : null, text); }
-function mkCard(i) {
-  const cv = h('canvas', { class: 'plot', width: 48, height: 64 }), fxl = h('div', { class: 'fxl' });
-  const win = h('div', { class: 'win', onclick: () => onTap(i) }, cv, fxl), nm = h('div', { class: 'nm' }, h('span'), h('small')), st = h('div', { class: 'st' });
-  const bw = h('div', { class: 'bar water' }, h('i')), bg = h('div', { class: 'bar grow' }, h('i'));
-  const main = h('button', { class: 'btn', onclick: () => onMain(i) }), fert = h('button', { class: 'btn alt sm', onclick: () => doAct({ a: 'fert', slot: i, id: sel.fert }, 'select') }), dig = h('button', { class: 'btn alt sm', onclick: () => doAct({ a: 'dig', slot: i }, 'click2') });
-  const d = h('div', { class: 'card panel' }, win, nm, st, h('div', { class: 'bars' }, bw, bg), main, h('div', { class: 'row2' }, fert, dig));
-  const c = { d, cv, ctx: cv.getContext('2d'), win, fxl, nm: nm.firstChild, kind: nm.lastChild, st, bw: bw.firstChild, bg: bg.firstChild, main, fert, dig, rate: 0, wrate: 0, vis: true };
-  win._c = c; if (io) io.observe(win);
-  return c;
-}
-function wateredNow(i) { const p = S.plants[i], c = cards[i]; p.w = 1; p.l = null; c.wrate = 0; c.wob = Date.now(); fx(c, 'water'); updCard(i); } // отклик мгновенный, сервер подтверждает позже
-function onMain(i) {
-  const p = S.plants[i];
-  if (!p) return doAct({ a: 'plant', slot: i, seed: sel.seed }, 'select');
-  if (p.x) return doAct({ a: 'clear', slot: i }, 'click2');
-  if (p.g >= 1) return doAct({ a: 'harvest', slot: i }, 'coin');
-  wateredNow(i); play('click2'); return doAct({ a: 'water', slot: i }, null, null, { nofx: true });
-}
-function onTap(i) { const p = S.plants[i]; if (p && !p.x) onMain(i); } // тап по растению: полить или собрать (посадка — только кнопкой, она тратит монеты)
+// ---------- действия ----------
 async function doAct(body, snd, msg, o = {}) {
-  const prev = S && body.slot != null ? S.plants[body.slot] : null, c = cards[body.slot];
+  const prev = S && body.slot != null ? S.plants[body.slot] : null;
   try {
     setState(await api('act', body));
     if (snd && !o.quiet) play(snd);
-    if (c && !o.nofx) { if (body.a === 'plant') fx(c, 'plant'); else if (body.a === 'water') { fx(c, 'water'); c.wob = Date.now(); } else if (body.a === 'harvest' && prev) { fx(c, 'coin', prev.v, prev.r); if (prev.r >= 3) play('win'); vib(25); } else if (body.a === 'fert') fx(c, 'fert'); else if (body.a === 'dig') fx(c, 'dig'); }
-    if (msg && !o.quiet) toast(msg, 'ok');
-    return true;
+    if (!o.nofx && body.slot != null) { const [x, y] = slotXY(body.slot); if (body.a === 'plant') fxAt(x, y, 'plant'); else if (body.a === 'water') { fxAt(x, y, 'water'); slotObj[body.slot].wob = Date.now(); } else if (body.a === 'harvest' && prev) { fxAt(x, y, 'coin', prev.v, prev.r); if (prev.r >= 3) play('win'); vib(25); } else if (body.a === 'fert') fxAt(x, y, 'fert'); else if (body.a === 'dig') fxAt(x, y, 'dig'); }
+    if (msg && !o.quiet) toast(msg, 'ok'); return true;
   } catch (e) { fail(e); refresh(); return false; }
 }
+function waterNow(i) { const p = S.plants[i]; p.w = 1; p.l = null; slotObj[i].wrate = 0; slotObj[i].wob = Date.now(); const [x, y] = slotXY(i); fxAt(x, y, 'water'); render(); return doAct({ a: 'water', slot: i }, 'click2', null, { nofx: true }); }
 async function bulk(kind) {
   if (busy || !S) return; busy = true;
   try {
     let n = 0, sum = 0;
-    if (kind === 'water') { if (await doAct({ a: 'waterall' }, 'click2', null, { quiet: true })) { S.plants.forEach((p, i) => { if (p && !p.x && cards[i]) { fx(cards[i], 'water'); cards[i].wob = Date.now(); } }); toast('Всё полито', 'ok'); } }
+    if (kind === 'water') { if (await doAct({ a: 'waterall' }, 'click2', null, { quiet: true })) { S.plants.forEach((p, i) => { if (p && !p.x) { const [x, y] = slotXY(i); fxAt(x, y, 'water'); slotObj[i].wob = Date.now(); } }); toast('Всё полито', 'ok'); } }
     else if (kind === 'harvest') {
-      for (let i = 0; i < S.slots; i++) { const p = S.plants[i]; if (p && !p.x && p.g >= 1) { const v = p.v, r = p.r, c = cards[i]; if (await doAct({ a: 'harvest', slot: i }, null, null, { quiet: true, nofx: true })) { n++; sum += v; fx(c, 'coin', v, r); } else break; } }
+      for (let i = 0; i < S.slots; i++) { const p = S.plants[i]; if (p && !p.x && p.g >= 1) { const v = p.v, r = p.r; if (await doAct({ a: 'harvest', slot: i }, null, null, { quiet: true, nofx: true })) { n++; sum += v; const [x, y] = slotXY(i); fxAt(x, y, 'coin', v, r); } else break; } }
       if (n) { play('coin'); vib(30); toast(`Собрано: ${n}, +${sum} монет`, 'ok'); } else toast('Пока нечего собирать');
     } else if (kind === 'plant') {
       const cost = (cat.seeds.find(x => x.id === sel.seed) || cat.seeds[0]).cost;
-      for (let i = 0; i < S.slots; i++) { if (!S.plants[i]) { if (S.coins < cost) { toast('Не хватило монет', 'err'); break; } if (await doAct({ a: 'plant', slot: i, seed: sel.seed }, null, null, { quiet: true, nofx: true })) { n++; fx(cards[i], 'plant'); } else break; } }
+      for (let i = 0; i < S.slots; i++) if (!S.plants[i]) { if (S.coins < cost) { toast('Не хватило монет', 'err'); break; } if (await doAct({ a: 'plant', slot: i, seed: sel.seed }, null, null, { quiet: true, nofx: true })) { n++; const [x, y] = slotXY(i); fxAt(x, y, 'plant'); } else break; }
       if (n) { play('select'); toast(`Посажено: ${n}`, 'ok'); }
     }
   } finally { busy = false; }
 }
-function cardStatus(i) {
-  const p = S.plants[i], c = cards[i], L = left(p);
-  let t = 'Пустая грядка', cls = '';
+function petTap(id) {
+  const info = S.pets[id]; if (!info) return openPets();
+  if (info.gifts > 0) return doAct({ a: 'gift', id }, 'coin', null, { nofx: true }).then(ok => { if (ok) { fxAt(HOTS[id][0] + 11, HOTS[id][1] - 6, 'coin', PETSG(id) * info.gifts, 0); } });
+  if (!info.fed) { toast(`${PETN[id][0]} голодна — покормите её`, 'err'); return openPets(); }
+  E.love[id] = Date.now(); fxAt(HOTS[id][0] + 11, HOTS[id][1], 'love'); play('select'); vib(15);
+}
+const PETSG = id => (cat.pets[id] ? cat.pets[id].gift : 0);
+
+// ---------- панель справа / снизу ----------
+let sheet = null;
+function openSheet(id, title, build, extra = {}) { sheet = { id, title, build, key: null, ...extra }; $('sheet').hidden = false; markDock(); renderSheet(true); }
+function closeSheet() { sheet = null; $('sheet').hidden = true; markDock(); }
+function renderSheet(force) {
+  if (!sheet || !S) return; const b = sheet.build(); if (!force && b.key === sheet.key) return; sheet.key = b.key;
+  const sh = $('sheet'), old = sh.querySelector('.sh-body'), st = old ? old.scrollTop : 0;
+  const body = h('div', { class: 'sh-body' }, b.nodes);
+  sh.replaceChildren(h('div', { class: 'sh-head' }, h('h2', null, typeof sheet.title === 'function' ? sheet.title() : sheet.title), h('button', { class: 'btn alt', 'aria-label': 'Закрыть', onclick: closeSheet }, '✕')), body); body.scrollTop = st; tickSheet();
+}
+function tickSheet() { // таймеры и полоски внутри открытого меню грядки обновляются раз в секунду
+  if (!sheet || sheet.id.slice(0, 3) !== 'pot') return; const i = sheet.slot, p = S.plants[i], c = slotObj[i], sh = $('sheet'); if (!p) return;
+  const g = sh.querySelector('[data-bar=g]'), w = sh.querySelector('[data-bar=w]'), st = sh.querySelector('[data-st]'); if (!g) return;
+  g.style.width = dispG(c, p) * 100 + '%'; w.style.width = (p.x ? 0 : dispW(c, p)) * 100 + '%';
+  const L = left(p); let t, cls = ''; if (p.x) { t = 'Засохло'; cls = 'bad'; } else if (p.g >= 1) { t = 'Созрело! Можно собирать' + (p.xd ? ' (уже опыляли)' : ' или скрещивать'); cls = 'ok'; } else if (L != null) { t = `${L <= cat.warn ? 'Скоро засохнет' : 'Хочет пить'} · ${mmss(L)}`; cls = L <= cat.warn ? 'bad' : 'mid'; } else t = `Растёт · ${Math.floor(dispG(c, p) * 100)}%`;
+  if (p.f && !p.x) t += ` · удобрено ×${p.f.m} (${mmss(Math.max(0, p.f.l - (Date.now() - S.at) / 1000))})`; st.textContent = t; st.className = 'st ' + cls;
+}
+const subTabs = (list, cur, set) => h('div', { class: 'sub' }, list.map(([k, l]) => h('button', { class: 'btn alt sm' + (cur === k ? ' on' : ''), onclick: () => { set(k); renderSheet(true); } }, l)));
+const potIcon = skin => { const cv = h('canvas', { width: 44, height: 34 }), c = cv.getContext('2d'); c.translate(5, 2); drawPot(c, skin, 17, 4, 0, 0); return cv; };
+
+// --- меню грядки ---
+function openPotMenu(i) { openSheet('pot' + i, `Грядка ${i + 1}`, () => potMenu(i), { slot: i }); }
+function potMenu(i) {
+  const p = S.plants[i], skin = S.slotPots[i] || 0, fert = cat.fert.find(x => x.id === sel.fert) || cat.fert[0];
+  const key = ['pot', i, S.coins, skin, S.skins, S.bank.length, S.nursery.length, S.nurseryCap, sel.fert, p ? [p.seed, p.g >= 1, p.x, p.l != null, p.xd, !!p.f, p.w > 0].join('|') : 'e'].join();
+  const nodes = [];
   if (p) {
-    if (p.x) { t = 'Засохло'; cls = 'bad'; }
-    else if (p.g >= 1) { t = 'Готово! Тапни — соберёшь'; cls = 'ok'; }
-    else if (L != null) { t = L <= cat.warn ? `Скоро засохнет · ${mmss(L)}` : `Хочет пить · ${mmss(L)}`; cls = L <= cat.warn ? 'bad' : 'mid'; }
-    else t = `Растёт · ${Math.floor(dispG(c, p) * 100)}%`;
-    if (p.f && !p.x) t += ` · ×${p.f.m} (${mmss(Math.max(0, p.f.l - (Date.now() - S.at) / 1000))})`;
+    const cv = h('canvas'), g = gen(p.seed, p.r); thumb(cv, p, skin);
+    nodes.push(h('div', { class: 'pothead' }, cv, h('div', null, h('h3', { style: { color: RC[p.r] } }, `${RN[p.r]} · ${KINDS[g.kind]}`), h('small', null, `Палитра: ${g.pal}`), h('small', null, p.gn ? `Гибрид, поколение ${p.gn}` : 'Выращено из магазинного семени'), h('div', { class: 'bar grow' }, h('i', { 'data-bar': 'g' })), h('div', { class: 'bar water' }, h('i', { 'data-bar': 'w' })), h('div', { class: 'st', 'data-st': '1' }))));
+    const A = [];
+    if (p.x) A.push(h('button', { class: 'btn', onclick: () => doAct({ a: 'clear', slot: i }, 'click2') }, h('i', { class: 'ico shovel' }), 'Убрать'));
+    else if (p.g >= 1) { A.push(h('button', { class: 'btn', onclick: () => doAct({ a: 'harvest', slot: i }, 'coin') }, h('i', { class: 'ico basket' }), `Собрать +${p.v}`)); A.push(h('button', { class: 'btn', disabled: !!p.xd, onclick: () => { labA = i; labB = -1; openLab(); } }, h('i', { class: 'ico flask' }), 'Скрестить')); }
+    else {
+      A.push(h('button', { class: 'btn', onclick: () => waterNow(i) }, h('i', { class: 'ico drop' }), 'Полить'));
+      A.push(h('button', { class: 'btn', disabled: !!p.f || S.coins < fert.cost, onclick: () => doAct({ a: 'fert', slot: i, id: sel.fert }, 'select') }, h('i', { class: 'ico bag' }), p.f ? `Удобрено ×${p.f.m}` : `Удобрить −${fert.cost}`));
+      A.push(h('button', { class: 'btn', disabled: S.nursery.length >= S.nurseryCap || S.coins < cat.rar[p.r].dig, onclick: () => doAct({ a: 'dig', slot: i }, 'click2') }, h('i', { class: 'ico shovel' }), `Выкопать −${cat.rar[p.r].dig}`));
+      A.push(h('select', { 'aria-label': 'Удобрение', onchange: e => { sel.fert = e.target.value; ls.set('pg_sel', sel); renderSheet(true); } }, cat.fert.map(f => h('option', { value: f.id, selected: f.id === sel.fert }, `${NAMES.fert[f.id]} · ${f.cost}`))));
+    }
+    nodes.push(h('div', { class: 'acts' }, A));
+  } else {
+    nodes.push(h('div', { class: 'sec' }, 'Что посадить'));
+    const list = h('div', { class: 'pick' });
+    for (const sd of cat.seeds) { const od = oddsOf(sd.w, S.lv.luck); list.append(h('button', { class: 'pk', disabled: S.coins < sd.cost, onclick: () => { sel.seed = sd.id; ls.set('pg_sel', sel); doAct({ a: 'plant', slot: i, seed: sd.id }, 'select'); } }, h('span', null, NAMES.seed[sd.id][0], h('small', null, `редкое+ ${pctOf(od[2] + od[3] + od[4])}, эпик+ ${pctOf(od[3] + od[4])}`)), h('b', null, sd.cost || 'бесплатно'))); }
+    S.bank.forEach((s, idx) => list.append(h('button', { class: 'pk', onclick: () => doAct({ a: 'plant', slot: i, bank: idx }, 'win') }, h('span', null, seedLabel(s), h('small', null, 'из банка семян')), h('b', null, 'бесплатно'))));
+    nodes.push(list);
+    if (S.nursery.length) { nodes.push(h('div', { class: 'sec' }, 'Из питомника')); S.nursery.forEach((n, idx) => nodes.push(h('button', { class: 'pk', onclick: () => doAct({ a: 'replant', idx, slot: i }, 'select') }, h('span', null, `${RN[n.r]} · ${kindOf(n)}`, h('small', null, `рост ${Math.floor(n.g * 100)}%`)), h('b', null, 'пересадить')))); }
   }
-  if (c.st.textContent !== t) c.st.textContent = t;
-  c.st.className = 'st ' + cls;
-  const w = !!p && !p.x && L != null && L <= cat.warn;
-  if (w && !c.warned && document.visibilityState === 'visible') { play('notify'); vib([60, 40, 60]); }
-  c.warned = w; c.d.classList.toggle('warn', w);
+  nodes.push(h('div', { class: 'sec' }, `Горшок: ${POTN[skin]}`), h('p', { class: 'hint' }, POTD[skin]));
+  const pots = h('div', { class: 'pots' });
+  cat.skins.forEach((cost, id) => { const own = (S.skins >> id) & 1; pots.append(h('button', { class: 'pk pot' + (skin === id ? ' on' : ''), title: POTN[id] + ' — ' + POTD[id], disabled: !own && S.coins < cost, onclick: async () => { if (!own && !(await doAct({ a: 'skin', id }, 'win'))) return; doAct({ a: 'setpot', slot: i, id }, 'select'); } }, potIcon(id), h('span', null, skin === id ? 'надет' : own ? 'надеть' : cost))); });
+  nodes.push(pots);
+  return { key, nodes };
 }
-function updCard(i) {
-  const c = cards[i], p = S.plants[i], grow = !!p && !p.x && p.g < 1;
-  const seed = cat.seeds.find(x => x.id === sel.seed) || cat.seeds[0], fert = cat.fert.find(x => x.id === sel.fert) || cat.fert[0];
-  c.nm.textContent = p ? RN[p.r] : 'Свободно'; c.nm.style.color = p ? RC[p.r] : ''; c.kind.textContent = p ? `${KINDS[gen(p.seed, p.r).kind]}${p.x ? ' · засохло' : ''}` : ' ';
-  c.win.style.setProperty('--rc', p ? RCL[p.r] : 'transparent'); c.d.classList.toggle('glow', !!p && p.r >= 3 && !p.x); c.win.classList.toggle('tap', !!p && !p.x);
-  c.bg.style.width = (p ? Math.min(1, p.g + (p.g >= 1 ? 0 : c.rate * 2)) * 100 : 0) + '%'; c.bw.style.width = (p && !p.x ? Math.max(0, p.w + (p.w <= 0 ? 0 : c.wrate * 2)) * 100 : 0) + '%';
-  if (!p) setBtn(c.main, 'sprout', `Посадить${seed.cost ? ' −' + seed.cost : ''}`); else if (p.x) setBtn(c.main, 'shovel', 'Убрать'); else if (p.g >= 1) setBtn(c.main, 'basket', `Собрать +${p.v}`); else setBtn(c.main, 'drop', 'Полить');
-  c.main.disabled = !p && S.coins < seed.cost;
-  c.fert.style.visibility = c.dig.style.visibility = grow ? 'visible' : 'hidden';
-  if (grow) {
-    setBtn(c.fert, 'bag', p.f ? `×${p.f.m}` : `Удобр. −${fert.cost}`); c.fert.disabled = !!p.f || S.coins < fert.cost;
-    setBtn(c.dig, 'shovel', `Копать −${cat.rar[p.r].dig}`); c.dig.disabled = S.nursery.length >= S.nurseryCap || S.coins < cat.rar[p.r].dig;
+const oddsOf = (w, luck) => { const x = w.map((v, i) => v * (1 + 0.08 * luck) ** i), s = x.reduce((a, b) => a + b); return x.map(v => v / s * 100); };
+const pctOf = v => (v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2)) + '%';
+
+// --- лавка ---
+let shopSub = 'seeds';
+function openShop() { openSheet('shop', 'Лавка', shopMenu); }
+function shopMenu() {
+  const key = ['shop', shopSub, S.coins, sel.seed, sel.fert, JSON.stringify(S.lv), S.skins, S.slots].join(), nodes = [subTabs([['seeds', 'Семена'], ['fert', 'Удобр.'], ['upg', 'Улучш.'], ['pots', 'Горшки']], shopSub, k => { shopSub = k; })];
+  if (shopSub === 'seeds') {
+    const box = h('div', { class: 'pick fade' });
+    for (const sd of cat.seeds) { const od = oddsOf(sd.w, S.lv.luck); box.append(h('button', { class: 'pk' + (sel.seed === sd.id ? ' on' : ''), onclick: () => { sel.seed = sd.id; ls.set('pg_sel', sel); renderSheet(true); play('select'); } }, h('span', null, NAMES.seed[sd.id][0], h('small', null, `редкое+ ${pctOf(od[2] + od[3] + od[4])}, эпик+ ${pctOf(od[3] + od[4])}`)), h('b', null, sd.cost || 'бесплатно'))); }
+    nodes.push(box, h('p', { class: 'hint' }, 'Выбранные семена сажает кнопка «Посадить» на панели. В пустой грядке можно выбрать любые. Редкие растения живут дольше, пьют меньше и стоят дороже, а ещё лучше подходят для селекции.'));
+  } else if (shopSub === 'fert') {
+    const box = h('div', { class: 'pick fade' });
+    for (const f of cat.fert) box.append(h('button', { class: 'pk' + (sel.fert === f.id ? ' on' : ''), onclick: () => { sel.fert = f.id; ls.set('pg_sel', sel); renderSheet(true); play('select'); } }, h('span', null, NAMES.fert[f.id], h('small', null, `рост ×${f.m} на ${f.sec / 60} мин`)), h('b', null, f.cost)));
+    nodes.push(box, h('p', { class: 'hint' }, 'Удобряют растение в меню грядки. Пока удобрение действует, второе применить нельзя.'));
+  } else if (shopSub === 'upg') {
+    const box = h('div', { class: 'fade' });
+    for (const k of Object.keys(NAMES.upg)) { const meta = cat.upg[k], lv = S.lv[k], cost = lv >= meta.max ? null : meta.costs[lv - meta.from]; box.append(h('div', { class: 'up' }, h('div', { class: 'upn' }, NAMES.upg[k][0], h('small', null, ' — ' + NAMES.upg[k][1])), h('div', { class: 'pips' }, Array.from({ length: meta.max }, (_, i) => h('i', { class: i < lv ? 'on' : '' }))), h('button', { class: 'btn sm', disabled: cost == null || S.coins < cost, onclick: () => doAct({ a: 'upgrade', kind: k }, 'win') }, cost == null ? 'Максимум' : `Купить ${cost}`))); }
+    nodes.push(box);
+  } else {
+    const box = h('div', { class: 'pick fade' });
+    cat.skins.forEach((cost, id) => { const own = (S.skins >> id) & 1; box.append(h('button', { class: 'pk', disabled: own || S.coins < cost, onclick: () => doAct({ a: 'skin', id }, 'win') }, h('span', null, POTN[id], h('small', null, POTD[id])), h('b', null, own ? 'есть' : cost))); });
+    nodes.push(box, h('p', { class: 'hint' }, 'Горшок надевают в меню грядки: у каждой грядки свой.'));
   }
-  cardStatus(i);
-}
-let toolbar = null;
-function buildToolbar() {
-  const ss = h('select', { 'aria-label': 'Какие семена сажать', onchange: () => { sel.seed = ss.value; ls.set('pg_sel', sel); render(); } }, cat.seeds.map(s => h('option', { value: s.id }, `${SHORT.seed[s.id]} · ${s.cost}`)));
-  const sf = h('select', { 'aria-label': 'Какое удобрение использовать', onchange: () => { sel.fert = sf.value; ls.set('pg_sel', sel); render(); } }, cat.fert.map(f => h('option', { value: f.id }, `${SHORT.fert[f.id]} · ${f.cost}`)));
-  const bw = h('button', { class: 'btn', 'aria-label': 'Полить все растения', onclick: () => bulk('water') }), bh = h('button', { class: 'btn', 'aria-label': 'Собрать все готовые', onclick: () => bulk('harvest') }), bp = h('button', { class: 'btn', 'aria-label': 'Посадить во все пустые грядки', onclick: () => bulk('plant') });
-  const el = h('div', { id: 'toolbar', class: 'panel' }, h('label', null, 'Сажаем', ss), h('label', null, 'Удобряем', sf), h('div', { class: 'acts' }, bw, bh, bp));
-  return { el, ss, sf, bw, bh, bp };
-}
-function updToolbar() {
-  toolbar.ss.value = sel.seed; toolbar.sf.value = sel.fert;
-  const ready = S.plants.filter(p => p && !p.x && p.g >= 1).length, empty = S.plants.filter(p => !p).length, thirsty = S.plants.some(p => p && !p.x);
-  const cost = (cat.seeds.find(x => x.id === sel.seed) || cat.seeds[0]).cost;
-  setBtn(toolbar.bw, 'drop', 'Полить'); toolbar.bw.disabled = !thirsty;
-  setBtn(toolbar.bh, 'basket', `Собрать${ready ? ' (' + ready + ')' : ''}`); toolbar.bh.disabled = !ready;
-  setBtn(toolbar.bp, 'sprout', `Посадить${empty ? ' (' + empty + ')' : ''}`); toolbar.bp.disabled = !empty || S.coins < cost;
-}
-function banner() {
-  return h('div', { class: 'panel note', id: 'legacy', hidden: !S || S.hasPass }, 'Ваш аккаунт без пароля: он пропадёт при очистке браузера. ', h('button', { class: 'btn alt sm', style: { width: 'auto', marginTop: '6px' }, onclick: () => openProfile() }, 'Защитить аккаунт'));
-}
-function renderCards() {
-  if (cards.length !== S.slots) {
-    toolbar = toolbar || buildToolbar();
-    $('garden').replaceChildren(); cards = Array.from({ length: S.slots }, (_, i) => mkCard(i));
-    $('garden').append(toolbar.el, banner(), ...cards.map(c => c.d));
-    S.plants.forEach((p, i) => { if (p) { cards[i].rate = 0; cards[i].wrate = 0; } });
-  }
-  S.plants.forEach((_, i) => updCard(i)); updToolbar();
+  return { key, nodes };
 }
 
-// ---------- боковая панель ----------
-let shop = null, nurKey = '', nurRows = [], sub = 'seeds', installEv = null;
-const odds = (w, luck) => { const x = w.map((v, i) => v * (1 + 0.08 * luck) ** i), s = x.reduce((a, b) => a + b); return x.map(v => v / s * 100); };
-const pct = v => (v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2)) + '%';
-const SUBS = [['seeds', 'Семена'], ['fert', 'Удобр.'], ['upg', 'Улучш.'], ['pots', 'Горшки'], ['more', 'Ещё']];
-function buildShop() {
-  const s = { seeds: {}, ferts: {}, ups: {}, pots: [], sec: {} };
-  const seedBox = h('div', { class: 'pick' }), fertBox = h('div', { class: 'pick' }), upBox = h('div'), potBox = h('div', { class: 'pots' });
-  for (const sd of cat.seeds) {
-    const price = h('b'), small = h('small'), r = h('button', { class: 'pk', onclick: () => { sel.seed = sd.id; ls.set('pg_sel', sel); render(); play('select'); } }, h('span', null, NAMES.seed[sd.id][0], small), price);
-    seedBox.append(r); s.seeds[sd.id] = { r, price, small };
+// --- лаборатория селекции ---
+let labA = -1, labB = -1;
+function openLab() { openSheet('lab', 'Лаборатория селекции', labMenu); }
+function labMenu() {
+  const elig = S.plants.map((p, i) => (p && !p.x && p.g >= 1 && !p.xd ? i : -1)).filter(i => i >= 0);
+  if (!elig.includes(labA)) labA = -1; if (!elig.includes(labB) || labB === labA) labB = -1;
+  const key = ['lab', labA, labB, S.coins, JSON.stringify(S.bank), S.lv.bk, S.bankCap, elig.map(i => S.plants[i].seed).join(), S.slots, S.plants.filter(p => !p).length].join(), nodes = [];
+  nodes.push(h('p', { class: 'hint' }, 'Скрестите два созревших растения (не собирайте их сразу): потомок унаследует форму, цвет и размер родителей, а иногда мутирует. Родители остаются в горшках, но опылять их можно только один раз.'));
+  nodes.push(h('div', { class: 'sec' }, 'Выберите двух родителей'));
+  const grid = h('div', { class: 'grid' });
+  for (const i of elig) { const p = S.plants[i], cv = h('canvas'); thumb(cv, p, S.slotPots[i]); grid.append(h('button', { class: 'card' + (i === labA || i === labB ? ' on' : ''), onclick: () => { if (labA === i) labA = -1; else if (labB === i) labB = -1; else if (labA < 0) labA = i; else labB = i; renderSheet(true); play('select'); } }, cv, h('b', { style: { color: RC[p.r] } }, RN[p.r]), h('div', null, kindOf(p)), h('div', { class: 'hint' }, i === labA ? 'родитель A' : i === labB ? 'родитель B' : `грядка ${i + 1}`))); }
+  nodes.push(elig.length ? grid : h('p', { class: 'hint' }, 'Пока нет созревших растений без опыления. Дождитесь роста и зайдите сюда снова.'));
+  if (labA >= 0 && labB >= 0) {
+    const A = S.plants[labA], B = S.plants[labB], cost = 20 * 2 ** Math.max(A.r, B.r), avg = (A.r + B.r) / 2;
+    nodes.push(h('div', { class: 'sec' }, 'Скрещивание'), h('p', { class: 'hint' }, `Родители: ${RN[A.r]} × ${RN[B.r]}. Редкость потомка около «${RN[Math.max(0, Math.min(4, Math.round(avg)))]}»: бывает на ступень выше или ниже.`),
+      h('button', { class: 'btn', disabled: S.coins < cost || S.bank.length >= S.bankCap, onclick: async () => { const [a, b] = [labA, labB]; if (await doAct({ a: 'cross', pa: a, pb: b }, 'win', 'Гибридное семя в банке!', { nofx: true })) { const [x, y] = slotXY(a); fxAt(x, y, 'cross'); const [x2, y2] = slotXY(b); fxAt(x2, y2, 'cross'); labA = labB = -1; renderSheet(true); } } }, h('i', { class: 'ico flask' }), `Скрестить −${cost}`));
   }
-  for (const f of cat.fert) {
-    const r = h('button', { class: 'pk', onclick: () => { sel.fert = f.id; ls.set('pg_sel', sel); render(); play('select'); } }, h('span', null, NAMES.fert[f.id], h('small', null, `рост ×${f.m} на ${f.sec / 60} мин. Кнопка «Удобр.» на грядке`)), h('b', null, f.cost));
-    fertBox.append(r); s.ferts[f.id] = r;
-  }
-  for (const k of Object.keys(NAMES.upg)) {
-    const dots = Array.from({ length: cat.upg[k].max }, () => h('i')), b = h('button', { class: 'btn sm', onclick: () => doAct({ a: 'upgrade', kind: k }, 'win') });
-    upBox.append(h('div', { class: 'up' }, h('div', { class: 'upn' }, NAMES.upg[k][0], h('small', null, ' — ' + NAMES.upg[k][1])), h('div', { class: 'pips' }, dots), b)); s.ups[k] = { dots, b };
-  }
-  cat.skins.forEach((cost, i) => {
-    const cv = h('canvas', { width: 24, height: 18 }), c = cv.getContext('2d'), P = POTS[i];
-    c.fillStyle = P[0]; c.fillRect(2, 3, 20, 4); c.fillStyle = P[1]; c.fillRect(2, 3, 20, 1); c.fillStyle = P[2]; c.fillRect(4, 7, 16, 8);
-    const lab = h('span'), b = h('button', { class: 'pk pot', title: NAMES.pot[i], onclick: () => doAct({ a: 'skin', id: i }, 'win') }, cv, lab);
-    potBox.append(b); s.pots.push({ b, lab });
-  });
-  s.nb = h('button', { class: 'btn alt', onclick: togglePush }); s.sb = h('button', { class: 'btn alt', onclick: () => { sound = !sound; ls.set('pg_sound', sound); updShop(); } });
-  s.ib = h('button', { class: 'btn alt', onclick: async () => { if (installEv) { installEv.prompt(); installEv = null; updShop(); } else toast('Меню браузера → «Добавить на главный экран»'); } }, 'Установить как приложение');
-  s.hint = h('p', { class: 'hint' });
-  s.sec = { seeds: seedBox, fert: fertBox, upg: upBox, pots: potBox, more: h('div', null, s.nb, h('div', { style: { height: '6px' } }), s.sb, h('div', { style: { height: '6px' } }), s.ib, s.hint) };
-  s.chips = SUBS.map(([k, l]) => h('button', { class: 'btn alt sm', onclick: () => { sub = k; renderSide(); } }, l));
-  s.root = h('div', { class: 'fade' }, h('div', { class: 'sub' }, s.chips), Object.values(s.sec));
-  return s;
+  nodes.push(h('div', { class: 'sec' }, `Банк семян ${S.bank.length}/${S.bankCap}`));
+  if (!S.bank.length) nodes.push(h('p', { class: 'hint' }, 'Здесь появятся гибридные семена. Их можно посадить бесплатно в любую пустую грядку.'));
+  const free = S.plants.findIndex(p => !p);
+  S.bank.forEach((s, idx) => { const cv = h('canvas'); thumb(cv, { seed: s.seed, r: s.r, g: 1 }, 0); nodes.push(h('div', { class: 'row' }, cv, h('div', null, h('b', { style: { color: RC[s.r] } }, `${RN[s.r]} · ${kindOf(s)}`), h('div', null, `Гибрид, поколение ${s.gn}`, ` · ${gen(s.seed, s.r).pal}`), h('div', { class: 'btns' }, h('button', { class: 'btn alt sm', disabled: free < 0, onclick: () => doAct({ a: 'plant', slot: free, bank: idx }, 'win') }, free < 0 ? 'Нет места' : 'Посадить'), h('button', { class: 'btn alt sm', onclick: () => doAct({ a: 'bankdrop', idx }, 'click2') }, 'Выбросить'))))); });
+  const bmeta = cat.upg.bk, bl = S.lv.bk, bcost = bl >= bmeta.max ? null : bmeta.costs[bl];
+  nodes.push(h('button', { class: 'btn alt', style: { marginTop: '8px' }, disabled: bcost == null || S.coins < bcost, onclick: () => doAct({ a: 'upgrade', kind: 'bk' }, 'win') }, bcost == null ? 'Банк на максимуме' : `Расширить банк +2 места −${bcost}`));
+  return { key, nodes };
 }
-function updShop() {
-  SUBS.forEach(([k], i) => { shop.chips[i].classList.toggle('on', sub === k); shop.sec[k].hidden = sub !== k; });
-  for (const sd of cat.seeds) {
-    const o = shop.seeds[sd.id], od = odds(sd.w, S.lv.luck);
-    o.r.classList.toggle('on', sel.seed === sd.id); o.price.textContent = sd.cost ? sd.cost : 'бесплатно';
-    o.small.textContent = `редкое+ ${pct(od[2] + od[3] + od[4])}, эпик+ ${pct(od[3] + od[4])}`;
+
+// --- питомцы ---
+function openPets() { openSheet('pets', 'Питомцы', petsMenu); }
+function petsMenu() {
+  const key = ['pets', S.coins, JSON.stringify(Object.fromEntries(Object.entries(S.pets).map(([k, v]) => [k, [v.fed > 0, v.gifts]])))].join(), nodes = [h('p', { class: 'hint' }, 'Питомцев нужно кормить. Пока они сыты, раз в несколько минут приносят монеты (копится до трёх подарков). Нажмите на кошку, собаку или аквариум в мастерской.')];
+  for (const id of PETO) {
+    const d = cat.pets[id], own = S.pets[id], cv = h('canvas', { class: 'petcv', width: 56, height: 48 }), c = cv.getContext('2d'), fr = id === 'fish' ? PET_SPR.fish[0][0] : PET_SPR[id][0];
+    c.imageSmoothingEnabled = false; const k = Math.max(1, Math.floor(Math.min(54 / fr.width, 46 / fr.height))); c.drawImage(fr, Math.floor((56 - fr.width * k) / 2), Math.floor((48 - fr.height * k) / 2), fr.width * k, fr.height * k);
+    const btns = h('div', { class: 'btns' });
+    if (!own) btns.append(h('button', { class: 'btn alt sm', disabled: S.coins < d.cost, onclick: () => doAct({ a: 'buypet', id }, 'win') }, `Завести −${d.cost}`));
+    else { btns.append(h('button', { class: 'btn alt sm', disabled: own.fed > 6 * 3600 || S.coins < d.feed, onclick: () => doAct({ a: 'feed', id }, 'select') }, `Покормить −${d.feed}`), h('button', { class: 'btn alt sm', disabled: !own.gifts, onclick: () => doAct({ a: 'gift', id }, 'coin', `+${own.gifts * d.gift} монет`) }, own.gifts ? `Подарок +${own.gifts * d.gift}` : 'Подарка нет')); }
+    nodes.push(h('div', { class: 'row' }, cv, h('div', null, h('b', null, PETN[id][0]), h('div', null, own ? (own.fed > 0 ? `Сыт ещё ${Math.floor(own.fed / 3600)} ч ${Math.floor(own.fed % 3600 / 60)} мин` : 'Голоден') : PETN[id][1]), h('div', { class: 'hint' }, `Подарок: +${d.gift} монет раз в ${Math.round(d.every / 60)} мин`), btns)));
   }
-  for (const f of cat.fert) shop.ferts[f.id].classList.toggle('on', sel.fert === f.id);
-  for (const [k, u] of Object.entries(shop.ups)) {
-    const meta = cat.upg[k], lv = S.lv[k], cost = lv >= meta.max ? null : meta.costs[lv - meta.from];
-    u.dots.forEach((d, i) => { d.className = i < lv ? 'on' : ''; });
-    u.b.textContent = cost == null ? 'Максимум' : `Купить ${cost}`; u.b.disabled = cost == null || S.coins < cost;
-    if (k === 'lamp') u.b.title = `Ночью рост ×${Math.min(0.7, 0.2 + 0.1 * lv).toFixed(1)}`;
-  }
-  cat.skins.forEach((cost, i) => { const own = (S.skins >> i) & 1, p = shop.pots[i]; p.lab.textContent = S.pot === i ? 'надет' : own ? 'надеть' : cost; p.b.classList.toggle('on', S.pot === i); p.b.disabled = !own && S.coins < cost; });
-  shop.nb.textContent = !canPush() ? 'Уведомления: нужен https' : S.push ? 'Уведомления: вкл' : 'Уведомлять о засыхании'; shop.nb.disabled = !canPush();
-  shop.sb.textContent = sound ? 'Звук и вибрация: вкл' : 'Звук и вибрация: выкл';
-  shop.ib.hidden = matchMedia('(display-mode: standalone)').matches;
-  shop.hint.textContent = `Без воды растение засыхает через ${cat.grace / 60} мин (уведомление — за ${cat.warn / 60} мин). Ночью рост ×${Math.min(0.7, 0.2 + 0.1 * S.lv.lamp).toFixed(1)}, но воды уходит почти в 10 раз меньше.`;
+  return { key, nodes };
 }
-function updNursery(root) {
-  const key = JSON.stringify(S.nursery) + S.nurseryCap;
-  if (key !== nurKey) {
-    nurKey = key; nurRows = [];
-    root.replaceChildren(h('div', { class: 'sec' }, `Питомник ${S.nursery.length}/${S.nurseryCap}`), h('p', { class: 'hint' }, 'Лопата убирает растение из горшка с сохранением роста (кнопка «Копать» на грядке). Цена зависит от редкости. Пересадить можно в любую свободную грядку.'));
-    S.nursery.forEach((p, idx) => {
-      const cv = h('canvas', { width: 48, height: 64 }), b = h('button', { class: 'btn alt sm', onclick: () => doAct({ a: 'replant', idx }, 'select') }, 'Посадить'), dr = h('button', { class: 'btn alt sm', onclick: () => doAct({ a: 'drop', idx }, 'click2') }, 'Выбросить');
-      root.append(h('div', { class: 'nrow' }, cv, h('div', null, h('b', { style: { color: RC[p.r] } }, RN[p.r]), h('div', null, `${KINDS[gen(p.seed, p.r).kind]} · рост ${Math.floor(p.g * 100)}%`), h('div', { class: 'row2' }, b, dr))));
-      nurRows.push({ cv, p, b }); drawStatic(cv, p, S.pot);
-    });
-    if (!S.nursery.length) root.append(h('p', { class: 'hint' }, 'Пока пусто.'));
-  }
-  nurRows.forEach(r => { r.b.disabled = !S.plants.some(p => !p); });
-}
-async function loadTop() {
-  if (!token || banned) return;
-  try { topData = await api('top', { k: topK }); if (tab === 'top') renderSide(); } catch { /* не критично */ }
-}
-function updTop(root) {
-  const mk = (k, l) => h('button', { class: 'btn alt sm', style: { opacity: topK === k ? 1 : 0.6 }, onclick: () => { topK = k; topData = null; loadTop(); renderSide(); } }, l);
-  root.replaceChildren(h('div', { class: 'row2' }, mk('earned', 'Заработок'), mk('harvests', 'Урожаи'), mk('rare', 'Редкие')), h('div', { class: 'sec' }, 'Лучшие игроки'));
-  const ol = h('ul', { class: 'rank' });
-  (topData ? topData.top : []).forEach((t, i) => ol.append(h('li', null, h('span', null, i + 1 + '.'), h('button', { onclick: () => openProfile(t.nick) }, t.nick), h('b', null, t.v))));
+
+// --- топ ---
+function openTop() { openSheet('top', 'Лучшие садоводы', topMenu); loadTop(); }
+function topMenu() {
+  const key = ['top', topK, JSON.stringify(topData)].join(), nodes = [subTabs([['earned', 'Заработок'], ['harvests', 'Урожаи'], ['rare', 'Редкие']], topK, k => { topK = k; topData = null; loadTop(); })];
+  const ol = h('ul', { class: 'rank fade' });
+  (topData ? topData.top : []).forEach((t, i) => ol.append(h('li', null, h('span', null, i + 1 + '.'), h('button', { onclick: () => openBook(t.nick) }, t.nick), h('b', null, t.v))));
   if (!topData || !topData.top.length) ol.append(h('li', null, topData ? 'Пока никого — соберите урожай.' : 'Загрузка…'));
-  root.append(ol);
-  if (topData) root.append(h('p', { class: 'hint' }, `Игроков: ${topData.g.players} · урожаев: ${topData.g.harvests} · легендарных: ${topData.g.legend}`));
+  nodes.push(ol); if (topData) nodes.push(h('p', { class: 'hint' }, `Игроков: ${topData.g.players} · урожаев: ${topData.g.harvests} · легендарных: ${topData.g.legend}`));
+  return { key, nodes };
 }
-function renderSide() {
-  const side = $('side');
-  if (!side.firstChild) {
-    side.replaceChildren(h('div', { class: 'tabs', id: 'tabs' }, ...[['shop', 'Лавка'], ['nursery', 'Питомник'], ['top', 'Топ']].map(([k, l]) => h('button', { class: 'btn', 'data-k': k, onclick: () => goTab(k) }, l))), h('div', { class: 'panel', id: 'pane' }));
-    shop = buildShop();
-  }
-  for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.k === tab);
-  const pane = $('pane');
-  if (tab === 'shop') { if (pane.firstChild !== shop.root) pane.replaceChildren(shop.root); updShop(); }
-  else if (tab === 'nursery') updNursery(pane);
-  else updTop(pane);
-}
+async function loadTop() { if (!token || banned) return; try { topData = await api('top', { k: topK }); if (sheet && sheet.id === 'top') renderSheet(); } catch { /* не критично */ } }
 
-// ---------- навигация (на телефоне — нижняя панель) ----------
-const NAV = [['garden', 'sprout', 'Сад'], ['shop', 'shop', 'Лавка'], ['nursery', 'shovel', 'Питомник'], ['top', 'trophy', 'Топ'], ['me', 'user', 'Профиль']];
-function buildNav() {
-  $('nav').replaceChildren(...NAV.map(([k, ic, l]) => h('button', { 'data-k': k, onclick: () => { if (k === 'me') openProfile(); else if (k === 'garden') setView('garden'); else goTab(k); } }, h('i', { class: 'ico ' + ic }), h('span', null, l))));
-}
-function setView(v) { view = v; document.body.dataset.view = v; scrollTo({ top: 0 }); markNav(); }
-function goTab(k) { tab = k; nurKey = ''; setView('side'); renderSide(); if (k === 'top') loadTop(); }
-function markNav() {
-  const ready = S ? S.plants.filter(p => p && !p.x && p.g >= 1).length : 0, warn = S ? S.plants.some((p, i) => p && !p.x && cards[i] && cards[i].warned) : false;
-  for (const b of $('nav').children) {
-    const k = b.dataset.k; b.classList.toggle('on', k === 'garden' ? view === 'garden' : k === tab && view === 'side');
-    if (k === 'garden') b.lastChild.textContent = 'Сад' + (warn ? ' !' : ready ? ` ${ready}` : '');
-  }
-  document.title = (warn ? '⚠ ' : ready ? '✓ ' : '') + 'Pixel Garden';
-}
-
-// ---------- профиль-«книга» ----------
-async function openProfile(nick) {
-  let P;
-  try { P = await api('profile', nick === undefined ? {} : { nick }); } catch (e) { return fail(e); }
-  const st = P.stats, kv = (k, v) => h('div', { class: 'kv' }, h('span', null, k), h('b', null, v));
-  const mini = pl => { const cv = h('canvas', { width: 48, height: 64 }); drawStatic(cv, pl, P.pot); return cv; };
-  const lp = h('div', { class: 'page l' }, h('h2', null, P.nick || 'Без ника'), h('div', null, h('span', { class: 'dot' + (P.online ? ' on' : '') }), P.online ? 'сейчас в игре' : 'не в сети', ' · с ', new Date(P.since).toLocaleDateString('ru-RU')),
-    h('h3', null, 'Статистика'), kv('Заработано', st.earned), kv('Урожаев', st.harvests), kv('Грядок', st.slots), kv('Потрачено', st.spent || 0), kv('Выкопано', st.dug || 0), kv('Засохло', st.wilt || 0),
-    h('h3', null, 'Выращено'), ...RN.map((n, i) => h('div', { class: 'kv' }, h('span', { style: { color: RC[i] } }, n), h('b', null, st.hr[i]))),
-    h('h3', null, 'Сад сейчас'), h('div', { class: 'mini' }, P.garden.map(pl => (pl ? mini(pl) : h('canvas', { width: 48, height: 64 })))));
-  if (P.self) lp.append(accountForm());
-  const gal = h('div', { class: 'gal' }, P.gallery.map(g => { const cv = h('canvas', { width: 48, height: 64 }); drawStatic(cv, { seed: g.seed, r: g.r, g: 1, x: false }, P.pot); return h('div', { class: 'win', title: `${RN[g.r]} · ${KINDS[gen(g.seed, g.r).kind]} · ${new Date(g.ts).toLocaleDateString('ru-RU')}`, style: { '--rc': RCL[g.r] } }, cv); }));
-  const right = h('div', { class: 'page r' }, h('h2', null, `Галерея (${P.gallery.length})`), P.gallery.length ? gal : h('p', { class: 'hint' }, 'Здесь появятся выращенные растения.'));
-  const x = h('button', { class: 'btn alt x', 'aria-label': 'Закрыть', onclick: closeOverlay }, '✕');
-  const o = overlay(h('div', { class: 'book' }, lp, right, x)); o.onclick = e => { if (e.target === o) closeOverlay(); };
-}
-function accountForm() {
-  const err = h('div', { class: 'err' });
-  const old = h('input', { type: 'password', placeholder: 'Старый пароль', autocomplete: 'current-password', maxLength: 128 });
-  const np = h('input', { type: 'password', placeholder: 'Новый пароль (от 8)', autocomplete: 'new-password', maxLength: 128 });
-  const nk = S.nick ? null : h('input', { placeholder: 'Ник', maxLength: 16 });
-  const btn = h('button', { class: 'btn alt', onclick: async () => {
-    err.textContent = '';
-    try { const had = S.hasPass; setState(await api(had ? 'passwd' : 'claim', had ? { old: old.value, pass: np.value } : { nick: nk ? nk.value : undefined, pass: np.value })); toast(had ? 'Пароль сохранён' : 'Аккаунт защищён', 'ok'); closeOverlay(); }
-    catch (e) { err.textContent = e.message; }
-  } }, S.hasPass ? 'Сменить пароль' : 'Защитить аккаунт');
-  return h('div', null, h('h3', null, 'Аккаунт'), S.hasPass ? old : nk, np, err, btn,
-    h('button', { class: 'btn alt', style: { marginTop: '6px' }, onclick: async () => { try { await api('logout'); } catch { /* */ } setToken(null); S = null; cards = []; toolbar = null; $('garden').replaceChildren(); $('side').replaceChildren(); shop = null; closeOverlay(); showAuth(); } }, 'Выйти'));
-}
-
-// ---------- уведомления ----------
+// --- настройки и аккаунт ---
+let deferredInstall = null;
 const canPush = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && window.isSecureContext;
 const b64u = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
 let pushBusy = false;
@@ -457,63 +319,110 @@ async function togglePush() {
   if (pushBusy) return; pushBusy = true;
   try {
     const reg = await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready;
-    if (S.push) { const sub = await reg.pushManager.getSubscription(); if (sub) await sub.unsubscribe(); setState(await api('push/off')); toast('Уведомления выключены', 'ok'); }
-    else {
-      if ((await Notification.requestPermission()) !== 'granted') throw new Error('Разрешите уведомления для сайта в настройках браузера');
-      const { key } = await api('push/key'); let sub = await reg.pushManager.getSubscription();
-      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(key) });
-      setState(await api('push/on', { endpoint: sub.endpoint })); toast('Уведомления включены', 'ok');
-    }
+    if (S.push) { const sb = await reg.pushManager.getSubscription(); if (sb) await sb.unsubscribe(); setState(await api('push/off')); toast('Уведомления выключены', 'ok'); }
+    else { if ((await Notification.requestPermission()) !== 'granted') throw new Error('Разрешите уведомления для сайта в настройках браузера'); const { key } = await api('push/key'); let sb = await reg.pushManager.getSubscription(); if (!sb) sb = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(key) }); setState(await api('push/on', { endpoint: sb.endpoint })); toast('Уведомления включены', 'ok'); }
   } catch (e) { toast(e.message, 'err'); } finally { pushBusy = false; }
 }
-addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEv = e; if (S && shop) updShop(); });
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; if (sheet && sheet.id === 'settings') renderSheet(true); });
+function openSettings() { openSheet('settings', 'Меню', settingsMenu); }
+function settingsMenu() {
+  const key = ['set', sound, S.push, S.hasPass, !!deferredInstall, S.nick].join(), nodes = [], err = h('div', { class: 'err' });
+  nodes.push(h('button', { class: 'btn alt', onclick: () => { sound = !sound; ls.set('pg_sound', sound); renderSheet(true); } }, sound ? 'Звук и вибрация: вкл' : 'Звук и вибрация: выкл'), h('div', { style: { height: '6px' } }),
+    h('button', { class: 'btn alt', disabled: !canPush(), onclick: togglePush }, !canPush() ? 'Уведомления: нужен https' : S.push ? 'Уведомления: вкл' : 'Уведомлять о засыхании'));
+  if (!matchMedia('(display-mode: standalone)').matches) nodes.push(h('div', { style: { height: '6px' } }), h('button', { class: 'btn alt', onclick: () => { if (deferredInstall) { deferredInstall.prompt(); deferredInstall = null; } else toast('Меню браузера → «Добавить на главный экран»'); } }, 'Установить как приложение'));
+  nodes.push(h('div', { class: 'sec' }, S.hasPass ? 'Смена пароля' : 'Защитите аккаунт'));
+  const old = h('input', { type: 'password', placeholder: 'Старый пароль', autocomplete: 'current-password', maxLength: 128 }), np = h('input', { type: 'password', placeholder: 'Пароль (от 8 символов)', autocomplete: 'new-password', maxLength: 128 }), nk = S.nick ? null : h('input', { placeholder: 'Ник', maxLength: 16 });
+  nodes.push(h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } }, S.hasPass ? old : nk, np, err, h('button', { class: 'btn alt', onclick: async () => { err.textContent = ''; const had = S.hasPass; try { setState(await api(had ? 'passwd' : 'claim', had ? { old: old.value, pass: np.value } : { nick: nk ? nk.value : undefined, pass: np.value })); toast(had ? 'Пароль сохранён' : 'Аккаунт защищён', 'ok'); } catch (e) { err.textContent = e.message; } } }, S.hasPass ? 'Сменить пароль' : 'Защитить аккаунт')));
+  nodes.push(h('div', { style: { height: '10px' } }), h('button', { class: 'btn alt', onclick: async () => { try { await api('logout'); } catch { /* */ } setToken(null); S = null; slotObj = []; closeSheet(); showAuth(); } }, 'Выйти из аккаунта'));
+  return { key, nodes };
+}
 
-// ---------- кадровый цикл ----------
-let shownCoins = 0;
+// ---------- книга-альбом с перелистыванием ----------
+async function openBook(nick) {
+  let P; try { P = await api('profile', nick === undefined ? {} : { nick }); } catch (e) { return fail(e); }
+  closeSheet(); const single = innerWidth <= 760, st = P.stats, kv = (k, v) => h('div', { class: 'kv' }, h('span', null, k), h('b', null, v));
+  const num = (n, t) => h('div', { class: 'num' }, `— ${n} / ${t} —`);
+  const left1 = () => h('div', { class: 'pg l' }, h('h2', null, P.nick || 'Без ника'), h('div', null, h('span', { class: 'dotp' + (P.online ? ' on' : '') }), P.online ? 'сейчас в игре' : 'не в сети', ' · с ', new Date(P.since).toLocaleDateString('ru-RU')), h('h3', null, 'Статистика'), kv('Заработано', st.earned), kv('Урожаев', st.harvests), kv('Грядок', st.slots), kv('Потрачено', st.spent || 0), kv('Выкопано', st.dug || 0), kv('Засохло', st.wilt || 0), kv('Скрещиваний', st.cross || 0));
+  const right1 = () => h('div', { class: 'pg r' }, h('h3', null, 'Выращено'), ...RN.map((n, i) => h('div', { class: 'kv' }, h('span', { style: { color: RC[i] } }, n), h('b', null, st.hr[i]))), h('h3', null, 'Сад сейчас'), h('div', { class: 'mini' }, P.garden.map((pl, i) => { const cv = h('canvas'); if (pl) thumb(cv, pl, P.slotPots[i] || 0); return pl ? cv : null; })), h('h3', null, 'Питомцы'), h('div', null, P.pets.length ? P.pets.map(id => PETN[id][0]).join(', ') : 'пока никого'));
+  const photoPage = (items, side, from) => () => h('div', { class: 'pg ' + side }, h('h2', null, from === 0 || (single && from === 0) ? 'Гербарий' : ' '), h('div', { class: 'photos' }, items.map((g, k) => { const cv = h('canvas'); thumb(cv, { seed: g.seed, r: g.r, g: 1 }, 0); const rot = (((g.seed % 7) - 3) * 0.6).toFixed(1) + 'deg'; return h('div', { class: 'pol', style: { '--rot': rot } }, cv, h('div', { class: 'cap' }, `${RN[g.r]} · ${KINDS[gen(g.seed, g.r).kind]}`, h('br'), new Date(g.ts).toLocaleDateString('ru-RU'))); })));
+  const empty = side => () => h('div', { class: 'pg ' + side }, h('div', { class: 'blank' }, side === 'l' ? 'Здесь появятся выращенные растения' : ''));
+  const per = 6, G = P.gallery, spreads = [{ l: left1, r: right1 }];
+  for (let i = 0; i < G.length; i += per * 2) spreads.push({ l: photoPage(G.slice(i, i + per), 'l', i + 1), r: G.length > i + per ? photoPage(G.slice(i + per, i + per * 2), 'r', i + per + 1) : empty('r') });
+  if (!G.length) spreads.push({ l: empty('l'), r: empty('r') });
+  const pages = single ? spreads.flatMap(s => [s.l, s.r]) : spreads, total = pages.length;
+  const album = h('div', { class: 'album' + (single ? ' single' : '') }), withNum = (fn, n, t) => () => { const e = fn(); e.append(num(n, t)); return e; };
+  let idx = 0, flipping = false;
+  const pageNode = (i, side) => { const sp = pages[i]; if (!sp) return h('div', { class: 'pg ' + (side || 'r') }); const n = single ? i + 1 : (side === 'l' ? i * 2 + 1 : i * 2 + 2); return (single ? withNum(sp, n, total) : withNum(sp[side], n, total * 2))(); };
+  const baseL = h('div', { class: 'base l' }), baseR = h('div', { class: 'base r' });
+  const show = () => { if (single) { baseL.replaceChildren(pageNode(idx)); album.replaceChildren(baseL); } else { baseL.replaceChildren(pageNode(idx, 'l')); baseR.replaceChildren(pageNode(idx, 'r')); album.replaceChildren(baseL, baseR); } counter.textContent = `${idx + 1} / ${total}`; prevB.disabled = idx === 0; nextB.disabled = idx === total - 1; };
+  const flip = dir => {
+    const to = idx + dir; if (flipping || to < 0 || to >= total) return; flipping = true; play('select');
+    const leaf = h('div', { class: 'leaf ' + (dir > 0 ? 'next' : 'prev') }), face = (cls, node) => h('div', { class: 'face ' + cls }, node);
+    if (single) { baseL.replaceChildren(pageNode(dir > 0 ? to : idx)); leaf.append(face('front', pageNode(dir > 0 ? idx : to)), face('back', h('div', { class: 'pg l' }))); album.replaceChildren(baseL, leaf); if (dir < 0) { leaf.style.transition = 'none'; leaf.style.transform = 'rotateY(-180deg)'; void leaf.offsetWidth; leaf.style.transition = ''; requestAnimationFrame(() => { leaf.style.transform = 'rotateY(0deg)'; }); } else requestAnimationFrame(() => { leaf.style.transform = 'rotateY(-180deg)'; }); }
+    else if (dir > 0) { baseR.replaceChildren(pageNode(to, 'r')); leaf.append(face('front', pageNode(idx, 'r')), face('back', pageNode(to, 'l'))); album.append(leaf); requestAnimationFrame(() => { leaf.style.transform = 'rotateY(-180deg)'; }); }
+    else { baseL.replaceChildren(pageNode(to, 'l')); leaf.append(face('front', pageNode(idx, 'l')), face('back', pageNode(to, 'r'))); album.append(leaf); requestAnimationFrame(() => { leaf.style.transform = 'rotateY(180deg)'; }); }
+    setTimeout(() => { idx = to; flipping = false; show(); }, reduced ? 30 : 880);
+  };
+  const prevB = h('button', { class: 'btn', 'aria-label': 'Назад', onclick: () => flip(-1) }, '◀'), nextB = h('button', { class: 'btn', 'aria-label': 'Вперёд', onclick: () => flip(1) }, '▶'), counter = h('span');
+  let sx = null; album.addEventListener('pointerdown', e => { sx = e.clientX; }); album.addEventListener('pointerup', e => { if (sx != null && Math.abs(e.clientX - sx) > 40) flip(e.clientX < sx ? 1 : -1); sx = null; });
+  albumKeys.fn = e => { if (e.key === 'ArrowRight') flip(1); else if (e.key === 'ArrowLeft') flip(-1); }; document.addEventListener('keydown', albumKeys);
+  show();
+  const o = overlay(h('div', { class: 'bookwrap' }, album, h('div', { class: 'bookbar' }, prevB, counter, nextB), h('button', { class: 'btn alt x', 'aria-label': 'Закрыть', onclick: closeOverlay }, '✕'))); o.onclick = e => { if (e.target === o) closeOverlay(); };
+}
+function albumKeys(e) { albumKeys.fn && albumKeys.fn(e); }
+
+// ---------- вход ----------
+function showAuth(msg) {
+  let mode = 'login';
+  const nick = h('input', { placeholder: 'Ник', maxLength: 16, autocomplete: 'username', autocapitalize: 'off', spellcheck: false, 'aria-label': 'Ник' }), pass = h('input', { type: 'password', placeholder: 'Пароль (от 8 символов)', maxLength: 128, autocomplete: 'current-password', 'aria-label': 'Пароль' });
+  const err = h('div', { class: 'err' }, msg || ''), go = h('button', { class: 'btn', type: 'submit' }, 'Войти'), tLogin = h('button', { class: 'btn alt', type: 'button' }, 'Вход'), tReg = h('button', { class: 'btn alt', type: 'button' }, 'Регистрация');
+  const setMode = m => { mode = m; go.textContent = m === 'login' ? 'Войти' : 'Создать аккаунт'; pass.autocomplete = m === 'login' ? 'current-password' : 'new-password'; tLogin.style.opacity = m === 'login' ? 1 : 0.6; tReg.style.opacity = m === 'reg' ? 1 : 0.6; err.textContent = ''; };
+  tLogin.onclick = () => setMode('login'); tReg.onclick = () => setMode('reg'); setMode('login');
+  const cv = h('canvas'); logo(cv, true);
+  const form = h('form', { onsubmit: async e => { e.preventDefault(); err.textContent = ''; go.disabled = true; try { setToken((await api(mode === 'login' ? 'login' : 'signup', { nick: nick.value, pass: pass.value })).token); closeOverlay(); banned = false; await refresh(); play('win'); } catch (x) { err.textContent = x.message; } finally { go.disabled = false; } } },
+    h('div', { class: 'row2' }, tLogin, tReg), nick, pass, err, go, h('p', { class: 'hint' }, 'Пароль нельзя восстановить автоматически: если забудете, попросите администратора сбросить его.'));
+  overlay(h('div', { class: 'panel auth' }, cv, form)); nick.focus();
+}
+
+// ---------- нижняя панель, быстрые действия, список для телефона ----------
+const DOCK = [['shop', 'shop', 'Лавка', openShop], ['lab', 'flask', 'Селекция', openLab], ['pets', 'paw', 'Питомцы', openPets], ['book', 'book', 'Книга', () => openBook()], ['top', 'trophy', 'Топ', openTop], ['set', 'gear', 'Меню', openSettings]];
+function buildDock() { $('dock').replaceChildren(...DOCK.map(([k, ic, l, fn]) => h('button', { 'data-k': k, onclick: () => { if (sheet && (sheet.id === k || (k === 'set' && sheet.id === 'settings'))) closeSheet(); else fn(); } }, h('i', { class: 'ico ' + ic }), l))); }
+function markDock() { const id = sheet ? sheet.id : ''; for (const b of $('dock').children) b.classList.toggle('on', b.dataset.k === id || (b.dataset.k === 'set' && id === 'settings') || (b.dataset.k === 'pets' && id === 'pets')); }
+let quickSets = [];
+function mkQuick() { const bw = h('button', { class: 'btn', onclick: () => bulk('water') }), bh = h('button', { class: 'btn', onclick: () => bulk('harvest') }), bp = h('button', { class: 'btn', onclick: () => bulk('plant') }); const el = h('div', { class: 'row2' }, bw, bh, bp); quickSets.push({ bw, bh, bp }); return el; }
+function updQuick() {
+  const ready = S.plants.filter(p => p && !p.x && p.g >= 1).length, empty = S.plants.filter(p => !p).length, thirsty = S.plants.some(p => p && !p.x), cost = (cat.seeds.find(x => x.id === sel.seed) || cat.seeds[0]).cost;
+  const setB = (btn, ic, t) => { const k = ic + t; if (btn._k !== k) { btn._k = k; btn.replaceChildren(h('i', { class: 'ico ' + ic }), t); } };
+  for (const q of quickSets) { setB(q.bw, 'drop', 'Полить'); q.bw.disabled = !thirsty; setB(q.bh, 'basket', `Собрать${ready ? ' ' + ready : ''}`); q.bh.disabled = !ready; setB(q.bp, 'sprout', `Посадить${empty ? ' ' + empty : ''}`); q.bp.disabled = !empty || S.coins < cost; }
+}
+let trayRows = [];
+function updTray() {
+  const tray = $('tray'); if (!tray.firstChild) { tray.append(h('div', { id: 'trayq' })); $('trayq').append(mkQuick()); }
+  if (trayRows.length !== S.slots) { trayRows.forEach(r => r.el.remove()); trayRows = Array.from({ length: S.slots }, (_, i) => { const cv = h('canvas', { width: 48, height: 68 }), t1 = h('b'), t2 = h('div'), btn = h('button', { class: 'btn alt sm', onclick: () => trayMain(i) }), more = h('button', { class: 'btn alt sm', onclick: () => openPotMenu(i) }, 'Меню'), el = h('div', { class: 'row panel' }, cv, h('div', null, t1, t2, h('div', { class: 'btns' }, btn, more))); tray.append(el); return { el, cv, t1, t2, btn, sk: '' }; }); }
+  S.plants.forEach((p, i) => { const r = trayRows[i], L = left(p), sk = p ? `${p.seed}|${Math.floor(p.g * 20)}|${p.x}` : 'e'; if (r.sk !== sk) { r.sk = sk; if (p) thumb(r.cv, p, S.slotPots[i]); else { r.cv.getContext('2d').clearRect(0, 0, 48, 68); } }
+    r.t1.textContent = p ? `${RN[p.r]} · ${kindOf(p)}` : `Грядка ${i + 1}: пусто`; r.t1.style.color = p ? RC[p.r] : ''; r.t2.textContent = !p ? 'Посадите семя' : p.x ? 'Засохло' : p.g >= 1 ? 'Готово!' : L != null ? `Хочет пить · ${mmss(L)}` : `Растёт ${Math.floor(dispG(slotObj[i], p) * 100)}%`;
+    const k = !p ? 'Посадить' : p.x ? 'Убрать' : p.g >= 1 ? `Собрать +${p.v}` : 'Полить'; if (r.btn.textContent !== k) r.btn.textContent = k; r.btn.disabled = !p && S.coins < (cat.seeds.find(x => x.id === sel.seed) || cat.seeds[0]).cost; });
+}
+function trayMain(i) { const p = S.plants[i]; if (!p) return doAct({ a: 'plant', slot: i, seed: sel.seed }, 'select'); if (p.x) return doAct({ a: 'clear', slot: i }, 'click2'); if (p.g >= 1) return doAct({ a: 'harvest', slot: i }, 'coin'); return waterNow(i); }
+
+// ---------- цикл ----------
 function render() {
   const ph = S.ph;
   $('clock').replaceChildren(h('i', { class: 'ico ' + (ph.name === 'night' ? 'moon' : 'sun') }), NAMES.phase[ph.name], h('span', { class: 'long' }, ` · рост ×${ph.gm} · вода ×${ph.wm}`), h('span', { class: 'short' }, ` ×${ph.gm}`));
-  const lg = $('legacy'); if (lg) lg.hidden = S.hasPass;
-  renderCards(); renderSide(); markNav();
+  if (!slotHot.length || slotHot.length !== S.slots) buildHots();
+  updHots(); updQuick(); updTray(); renderSheet();
+  const ready = S.plants.filter(p => p && !p.x && p.g >= 1).length, warn = S.plants.some(p => p && !p.x && left(p) != null && left(p) <= cat.warn); document.title = (warn ? '⚠ ' : ready ? '✓ ' : '') + 'Pixel Garden';
+  if (S.plants.every(p => !p) && !ls.get('pg_hint', false)) { ls.set('pg_hint', true); setTimeout(() => toast(innerWidth <= 760 ? 'Нажмите на пустую грядку. Сцену можно листать пальцем.' : 'Нажмите на пустой горшок на столе, чтобы посадить растение', 'ok'), 800); }
+  if (!S.hasPass && !render.noted) { render.noted = 1; setTimeout(() => toast('Аккаунт без пароля: защитите его в меню', 'err'), 1500); }
 }
-let lastF = 0, lastTint = 0;
-function frame(ts) {
-  requestAnimationFrame(frame);
-  if (document.hidden || !S || ts - lastF < 33) return; // ~30 кадров/с, на скрытой вкладке не рисуем
-  lastF = ts;
-  const tm = Date.now(), hr = hourNow();
-  renderBg(BG.getContext('2d'), hr, tm);
-  S.plants.forEach((p, i) => {
-    const c = cards[i]; if (!c || !c.vis) return;
-    const x = c.ctx, dw = p && !p.x ? dispW(c, p) : 0.4;
-    x.drawImage(BG, 0, 0); x.fillStyle = css(mix([112, 78, 46], [48, 32, 24], dw)); x.fillRect(12, 53, 24, 1);
-    if (p) {
-      const dg = dispG(c, p), g = gen(p.seed, p.r), L = left(p);
-      if (g.aura && !p.x && dg > 0.5) { x.globalAlpha = 0.75 + 0.25 * Math.sin(tm / 450); x.drawImage(auraCv(g.aura), 0, 0); x.globalAlpha = 1; }
-      drawSway(x, getSprite(c, p, dg, p.x || L == null ? 0 : Math.min(0.55, 0.55 * (1 - L / cat.grace))), tm, p.x || dg < 0.12 ? 0 : Math.min(1, (dg - 0.12) * 3));
-      if (!p.x && p.g >= 1) for (const s of g.sp) if ((((tm / 350) | 0) + s.o) % 3 === 0) {
-        const k = RCL[p.r]; x.fillStyle = k; x.fillRect(s.x, s.y, 1, 1);
-        if (p.r >= 3) { x.fillRect(s.x - 1, s.y, 1, 1); x.fillRect(s.x + 1, s.y, 1, 1); x.fillRect(s.x, s.y - 1, 1, 1); x.fillRect(s.x, s.y + 1, 1, 1); }
-      }
-    }
-    const wob = c.wob && tm - c.wob < 360 ? ((((tm - c.wob) / 60) | 0) % 2 ? 1 : -1) : 0;
-    potDraw(x, 0, S.pot, tm, wob);
-    if (p && !p.x && p.g < 1 && (frame.n = (frame.n || 0) + 1) % 4 === 0) { c.bg.style.width = Math.min(1, dispG(c, p) + (c.rate || 0) * 2) * 100 + '%'; }
-  });
-  if (shownCoins !== S.coins) { const d = S.coins - shownCoins, step = Math.sign(d) * Math.max(1, Math.ceil(Math.abs(d) * 0.18)); const prev = shownCoins; shownCoins = Math.abs(d) <= Math.abs(step) ? S.coins : shownCoins + step; $('coins').lastChild.textContent = shownCoins; if (shownCoins > prev && !reduced) { const cn = $('coins'); cn.classList.remove('bump'); void cn.offsetWidth; cn.classList.add('bump'); } }
-  if (ts - lastTint > 3000) { lastTint = ts; const t = nightF(hr); document.body.style.setProperty('--bgc', css(mix([58, 48, 80], [30, 22, 46], t))); }
-}
-async function refresh() {
-  if (!token || banned) return;
-  try { setState(await api('state')); } catch (e) { fail(e); }
-}
+async function refresh() { if (!token || banned) return; try { setState(await api('state')); } catch (e) { fail(e); } }
 async function boot() {
-  logo($('logo')); buildNav();
-  $('hud').append(h('span', { class: 'chip', id: 'coins' }, h('i', { class: 'ico coin' }), h('b', null, '0')), h('button', { class: 'btn hud-btn', onclick: () => openProfile() }, h('i', { class: 'ico user' }), 'Профиль'));
+  logo($('logo')); initArt(); ctx = $('roomcv').getContext('2d'); fitScale(); addEventListener('resize', fitScale); addEventListener('orientationchange', fitScale);
+  $('hud').append(h('span', { class: 'chip', id: 'coins' }, h('i', { class: 'ico coin' }), h('b', null, '0')));
+  buildDock(); quickSets = []; $('quick').append(mkQuick());
   try { cat = await api('catalog'); } catch { toast('Сервер недоступен', 'err'); return; }
   if (!token) showAuth(); else refresh();
-  setInterval(() => { if (!document.hidden) refresh(); }, 2000); setInterval(() => { if (!document.hidden) loadTop(); }, 20000);
-  setInterval(() => { if (S) { S.plants.forEach((_, i) => cards[i] && cardStatus(i)); markNav(); } }, 1000);
+  setInterval(() => { if (!document.hidden) refresh(); }, 2000); setInterval(() => { if (!document.hidden && sheet && sheet.id === 'top') loadTop(); }, 20000); setInterval(() => { if (S) { tickSheet(); updHots(); } }, 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
   requestAnimationFrame(frame);
 }

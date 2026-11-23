@@ -34,21 +34,23 @@ function openStore(dir) {
   db.exec('INSERT OR IGNORE INTO sessions (hash,pid,created) SELECT id,id,created FROM players WHERE length(id)=64');
 
   const players = new Map(), nickIndex = new Map(), dirty = new Set(), badwords = new Set(), sessions = new Map();
-  const defStats = () => ({ hr: [0, 0, 0, 0, 0], wilt: 0, dug: 0, spent: 0, fert: 0 });
+  const defStats = () => ({ hr: [0, 0, 0, 0, 0], wilt: 0, dug: 0, spent: 0, fert: 0, cross: 0, pg: 0 });
   const fromRow = r => {
     const x = r.extra ? JSON.parse(r.extra) : {};
-    return {
+    const P = {
       id: r.id, nick: r.nick, nickAt: r.nick_at, nickLock: r.nick_lock, coins: r.coins, earned: r.earned, harvests: r.harvests,
       tank: r.tank, luck: r.luck, plants: JSON.parse(r.plants), push: r.push, created: r.created, seen: r.seen,
       banned: r.banned, banReason: r.ban_reason, pass: r.pass,
-      nurs: x.nurs | 0, lamp: x.lamp | 0, mulch: x.mulch | 0, skins: x.skins | 1, pot: x.pot | 0,
-      nursery: x.nursery || [], stats: { ...defStats(), ...(x.stats || {}) },
+      nurs: x.nurs | 0, lamp: x.lamp | 0, mulch: x.mulch | 0, bk: x.bk | 0, skins: x.skins | 1, slotPots: [],
+      nursery: x.nursery || [], bank: x.bank || [], pets: x.pets || {}, stats: { ...defStats(), ...(x.stats || {}) },
     };
+    P.slotPots = Array.isArray(x.slotPots) ? x.slotPots.slice(0, P.plants.length) : []; while (P.slotPots.length < P.plants.length) P.slotPots.push(0);
+    return P;
   };
   const blank = (id, nick, pass) => {
     const now = Date.now();
     return { id, nick: null, nickAt: 0, nickLock: 0, coins: 20, earned: 0, harvests: 0, tank: 0, luck: 0, plants: [null, null], push: null,
-      created: now, seen: now, banned: 0, banReason: null, pass: pass || null, nurs: 0, lamp: 0, mulch: 0, skins: 1, pot: 0, nursery: [], stats: defStats() };
+      created: now, seen: now, banned: 0, banReason: null, pass: pass || null, nurs: 0, lamp: 0, mulch: 0, bk: 0, skins: 1, slotPots: [0, 0], nursery: [], bank: [], pets: {}, stats: defStats() };
   };
   for (const r of db.prepare('SELECT * FROM players').all()) {
     const P = fromRow(r); players.set(P.id, P);
@@ -65,7 +67,7 @@ function openStore(dir) {
   const clr = db.prepare('UPDATE players SET nick_key=NULL WHERE id=?');
   const cols = P => [P.id, P.nick ?? null, P.nick ? P.nick.toLowerCase() : null, P.nickAt, P.nickLock, P.coins, P.earned, P.harvests,
     P.tank, P.luck, JSON.stringify(P.plants), P.push ?? null, P.created, P.seen, P.banned, P.banReason ?? null, P.pass ?? null,
-    JSON.stringify({ nurs: P.nurs, lamp: P.lamp, mulch: P.mulch, skins: P.skins, pot: P.pot, nursery: P.nursery, stats: P.stats })];
+    JSON.stringify({ nurs: P.nurs, lamp: P.lamp, mulch: P.mulch, bk: P.bk, skins: P.skins, slotPots: P.slotPots, nursery: P.nursery, bank: P.bank, pets: P.pets, stats: P.stats })];
 
   const touch = P => dirty.add(P.id);
   function flush() {

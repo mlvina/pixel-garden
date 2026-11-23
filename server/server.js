@@ -36,18 +36,28 @@ const UPG = {
   slot: { max: 9, from: 2, cost: n => Math.round(40 * 2.5 ** (n - 2)) }, tank: { max: 10, from: 0, cost: n => Math.round(30 * 2.2 ** n) },
   luck: { max: 8, from: 0, cost: n => Math.round(60 * 2.5 ** n) }, nurs: { max: 6, from: 0, cost: n => Math.round(40 * 2.4 ** n) },
   lamp: { max: 5, from: 0, cost: n => Math.round(150 * 2.6 ** n) }, mulch: { max: 8, from: 0, cost: n => Math.round(50 * 2.3 ** n) },
+  bk: { max: 5, from: 0, cost: n => Math.round(60 * 2.3 ** n) }, // семенной банк: +2 места за уровень
 };
-const SKINS = [0, 300, 2500, 12000]; // цены горшков (0 — стандартный)
+// Горшки: у каждой грядки свой, небольшие бонусы. 0 глиняный — без бонуса.
+const SKINS = [0, 400, 1500, 4000, 10000];
+const POT_FX = { 1: { drain: 0.85 }, 2: { growth: 1.1 }, 3: { grace: 1.5 }, 4: { value: 1.1 } }; // медный: воды −15%; стеклянный: рост +10%; каменный: терпит засуху на 50% дольше; золотой: урожай +10%
+// Питомцы: куплены один раз, кормятся за монеты; пока сыты — раз в every секунд приносят подарок (копится до 3)
+const PETS = { fish: { cost: 150, feed: 2, every: 600, gift: 4 }, cat: { cost: 500, feed: 5, every: 900, gift: 14 }, dog: { cost: 800, feed: 6, every: 900, gift: 18 }, seal: { cost: 3500, feed: 20, every: 1200, gift: 80 } };
+const FEED_MS = 4 * 36e5, GIFT_CAP = 3;
 const GRACE = 600, WARN = 180; // сек без воды до засыхания / за сколько сек до него слать уведомление
 const VAPID_SUB = process.env.VAPID_SUB || 'mailto:admin@example.com';
 const CATALOG = {
-  rar: RAR, seeds: SEEDS, fert: FERT, skins: SKINS, grace: GRACE, warn: WARN, tz: GAME_TZ,
+  rar: RAR, seeds: SEEDS, fert: FERT, skins: SKINS, potFx: POT_FX, pets: PETS, grace: GRACE, warn: WARN, tz: GAME_TZ, bankBase: 4, nurseryBase: 2,
   upg: Object.fromEntries(Object.entries(UPG).map(([k, u]) => [k, { max: u.max, from: u.from, costs: Array.from({ length: u.max - u.from }, (_, i) => u.cost(u.from + i)) }])),
 };
 const lvl = (P, k) => (k === 'slot' ? P.plants.length : P[k]);
 const capSec = P => 180 + 120 * P.tank;
 const mulch = P => 1 - 0.07 * P.mulch;
 const nurseryCap = P => 2 + P.nurs;
+const bankCap = P => 4 + 2 * P.bk;
+const potOf = (P, p) => P.slotPots[P.plants.indexOf(p)] || 0;
+const potFx = (P, p) => POT_FX[potOf(P, p)] || {};
+const graceOf = (P, p) => GRACE * (potFx(P, p).grace || 1);
 
 // ---------- день и ночь ----------
 let FMT;
@@ -65,6 +75,8 @@ function phase(ms, P) { // ночью рост в 5 раз медленнее (�
   return { name, gm, wm, hour: h, until: ms + ((nb !== undefined ? nb * 3600 : 86400 + BOUNDS[0] * 3600) - s) * 1000 };
 }
 
+const { makeGenome, crossGenome, crossRarity } = require('./genome'); // геном и селекция
+
 // ---------- игровая логика ----------
 const sha = t => crypto.createHash('sha256').update(t).digest('hex');
 function rollRarity(P, pack) {
@@ -73,43 +85,52 @@ function rollRarity(P, pack) {
   for (let i = 0; i < w.length; i++) if (w[i] > 0 && (x -= w[i]) < 0) return i;
   return w.findLastIndex(v => v > 0);
 }
-const value = p => Math.round(RAR[p.r].val * (1 + ((p.seed % 21) - 10) / 50));
+const value = (P, p) => Math.round(RAR[p.r].val * (1 + ((p.seed % 21) - 10) / 50) * (potFx(P, p).value || 1));
 
 function sim(P, p, now) { // ленивая симуляция по отрезкам постоянной скорости: idle работает и офлайн
   if (p.dead) return;
-  const R = RAR[p.r], cap = capSec(P);
+  const R = RAR[p.r], cap = capSec(P), pf = potFx(P, p), grace = GRACE * (pf.grace || 1);
   let t = p.t, guard = 0;
   while (t < now && !p.dead && p.g < 1 && guard++ < 500) {
     const ph = phase(t, P);
     let e = Math.min(now, ph.until), fm = 1;
     if (p.fx) { if (t < p.fx.until) { fm = p.fx.m; e = Math.min(e, p.fx.until); } else p.fx = null; }
-    const dt = (e - t) / 1000, drain = R.thirst * ph.wm * mulch(P) / cap; // доля воды в секунду
+    const dt = (e - t) / 1000, drain = R.thirst * ph.wm * mulch(P) * (pf.drain || 1) / cap; // доля воды в секунду
     const tw = drain > 0 ? Math.min(dt, p.w / drain) : dt; // секунд с водой на этом отрезке
-    const rate = ph.gm * fm / R.time;
+    const rate = ph.gm * fm * (pf.growth || 1) / R.time;
     p.g = Math.min(1, p.g + Math.min(tw, (1 - p.g) / rate) * rate);
     p.w = Math.max(0, p.w - drain * dt); if (p.w < 1e-9) p.w = 0;
     if (p.g >= 1) p.d = 0;
     else if (p.w === 0) {
       if (!p.d) p.d = t + tw * 1000; // момент, когда закончилась вода
-      if (e - p.d >= GRACE * 1000) { p.dead = true; P.stats.wilt++; touch(P); } // слишком долго без воды
+      if (e - p.d >= grace * 1000) { p.dead = true; P.stats.wilt++; touch(P); } // слишком долго без воды
     }
     t = e;
   }
   p.t = now;
 }
 
+function petInfo(P, id, now) {
+  const d = PETS[id], pt = P.pets[id]; if (!pt) return null;
+  const end = Math.min(now, pt.fed), every = d.every * 1000; let n = 0, base = pt.last;
+  if (end > pt.last) { base = Math.max(pt.last, end - GIFT_CAP * every); n = Math.min(GIFT_CAP, Math.floor((end - base) / every)); }
+  return { fed: Math.max(0, Math.ceil((pt.fed - now) / 1000)), gifts: n, base };
+}
+
 function view(P) {
   const now = Date.now(), ph = phase(now, P);
   P.plants.forEach(p => p && sim(P, p, now));
   return {
-    coins: P.coins, slots: P.plants.length, capSec: capSec(P), push: !!P.push, hasPass: !!P.pass, skins: P.skins, pot: P.pot,
+    coins: P.coins, slots: P.plants.length, capSec: capSec(P), push: !!P.push, hasPass: !!P.pass, skins: P.skins, slotPots: P.slotPots,
     nick: P.nick, nickLock: !!P.nickLock, nickWait: P.nick ? Math.max(0, Math.ceil((P.nickAt + NICK_COOLDOWN - now) / 1000)) : 0,
-    lv: { slot: P.plants.length, tank: P.tank, luck: P.luck, nurs: P.nurs, lamp: P.lamp, mulch: P.mulch },
-    ph: { name: ph.name, gm: +ph.gm.toFixed(2), wm: ph.wm, hour: +ph.hour.toFixed(3) }, nurseryCap: nurseryCap(P),
-    nursery: P.nursery.map(p => ({ seed: p.seed, r: p.r, g: +p.g.toFixed(4) })), stats: { ...P.stats, earned: P.earned, harvests: P.harvests },
+    lv: { slot: P.plants.length, tank: P.tank, luck: P.luck, nurs: P.nurs, lamp: P.lamp, mulch: P.mulch, bk: P.bk },
+    ph: { name: ph.name, gm: +ph.gm.toFixed(2), wm: ph.wm, hour: +ph.hour.toFixed(3) }, nurseryCap: nurseryCap(P), bankCap: bankCap(P),
+    nursery: P.nursery.map(p => ({ seed: p.seed, r: p.r, gn: p.gn | 0, g: +p.g.toFixed(4) })), bank: P.bank,
+    pets: Object.fromEntries(Object.keys(P.pets).map(id => { const i = petInfo(P, id, now); return [id, { fed: i.fed, gifts: i.gifts }]; })),
+    stats: { ...P.stats, earned: P.earned, harvests: P.harvests },
     plants: P.plants.map(p => p && {
-      seed: p.seed, r: p.r, g: +p.g.toFixed(4), w: +p.w.toFixed(4), v: value(p), x: !!p.dead,
-      l: !p.dead && p.d ? Math.max(0, Math.ceil(GRACE - (now - p.d) / 1000)) : null, // секунд до засыхания
+      seed: p.seed, r: p.r, gn: p.gn | 0, xd: !!p.xd, g: +p.g.toFixed(4), w: +p.w.toFixed(4), v: value(P, p), x: !!p.dead, gr: graceOf(P, p),
+      l: !p.dead && p.d ? Math.max(0, Math.ceil(graceOf(P, p) - (now - p.d) / 1000)) : null, // секунд до засыхания
       f: p.fx && p.fx.until > now ? { m: p.fx.m, l: Math.ceil((p.fx.until - now) / 1000) } : null,
     }),
   };
@@ -121,13 +142,21 @@ function act(P, b) {
   const slot = (v = b.slot) => { if (!Number.isInteger(v) || v < 0 || v >= P.plants.length) fail('Нет такой грядки'); return v; };
   const nidx = () => { if (!Number.isInteger(b.idx) || b.idx < 0 || b.idx >= P.nursery.length) fail('Нет такого растения'); return b.idx; };
   const pay = c => { if (P.coins < c) fail('Не хватает монет'); P.coins -= c; P.stats.spent += c; };
+  const pet = () => { if (typeof b.id !== 'string' || !Object.hasOwn(PETS, b.id)) fail('Нет такого питомца'); return b.id; };
   switch (b.a) {
     case 'plant': {
-      const i = slot(), pack = SEEDS.find(s => s.id === b.seed);
-      if (!pack) fail('Неизвестные семена');
+      const i = slot();
       if (P.plants[i]) fail('Грядка занята');
+      if (b.bank !== undefined) { // семя из банка (гибрид)
+        if (!Number.isInteger(b.bank) || b.bank < 0 || b.bank >= P.bank.length) fail('Нет такого семени');
+        const s = P.bank.splice(b.bank, 1)[0];
+        P.plants[i] = { seed: s.seed, r: s.r, gn: s.gn | 0, g: 0, w: 1, t: now, d: 0, nw: 0, fx: null, xd: 0 }; break;
+      }
+      const pack = SEEDS.find(s => s.id === b.seed);
+      if (!pack) fail('Неизвестные семена');
       pay(pack.cost);
-      P.plants[i] = { seed: crypto.randomInt(2 ** 32), r: rollRarity(P, pack), g: 0, w: 1, t: now, d: 0, nw: 0, fx: null };
+      const r = rollRarity(P, pack);
+      P.plants[i] = { seed: makeGenome(r), r, gn: 0, g: 0, w: 1, t: now, d: 0, nw: 0, fx: null, xd: 0 };
       break;
     }
     case 'water': {
@@ -147,9 +176,19 @@ function act(P, b) {
       if (!p) fail('Грядка пуста');
       if (p.dead) fail('Растение засохло');
       if (p.g < 1) fail('Растение ещё не выросло');
-      const v = value(p); P.coins += v; P.earned += v; P.harvests++; P.stats.hr[p.r]++;
+      const v = value(P, p); P.coins += v; P.earned += v; P.harvests++; P.stats.hr[p.r]++;
       store.galleryAdd(P.id, p.seed, p.r); P.plants[i] = null; break;
     }
+    case 'cross': { // селекция: два созревших растения дают гибридное семя в банк (растения остаются, но второй раз опыляться не могут)
+      const ia = slot(b.pa), ib = slot(b.pb), A = P.plants[ia], B = P.plants[ib]; // родители: pa, pb (поле a занято под имя действия)
+      if (ia === ib) fail('Нужны два разных растения');
+      for (const p of [A, B]) { if (!p || p.dead) fail('Нужны живые растения'); if (p.g < 1) fail('Растения должны созреть'); if (p.xd) fail('Это растение уже опыляли'); }
+      if (P.bank.length >= bankCap(P)) fail('Банк семян заполнен');
+      pay(20 * 2 ** Math.max(A.r, B.r));
+      A.xd = B.xd = 1; P.stats.cross++;
+      P.bank.push({ seed: crossGenome(A.seed, A.r, B.seed, B.r), r: crossRarity(A.r, B.r), gn: Math.max(A.gn | 0, B.gn | 0) + 1 }); break;
+    }
+    case 'bankdrop': { if (!Number.isInteger(b.idx) || b.idx < 0 || b.idx >= P.bank.length) fail('Нет такого семени'); P.bank.splice(b.idx, 1); break; }
     case 'fert': {
       const p = P.plants[slot()], f = FERT.find(x => x.id === b.id);
       if (!f) fail('Неизвестное удобрение');
@@ -164,11 +203,11 @@ function act(P, b) {
       if (p.g >= 1) fail('Созревшее растение просто соберите');
       if (P.nursery.length >= nurseryCap(P)) fail('Питомник заполнен');
       pay(RAR[p.r].dig); P.stats.dug++;
-      P.nursery.push({ seed: p.seed, r: p.r, g: p.g, w: p.w, t: now, d: 0, nw: 0, fx: null }); P.plants[i] = null; break;
+      P.nursery.push({ seed: p.seed, r: p.r, gn: p.gn | 0, g: p.g, w: p.w, t: now, d: 0, nw: 0, fx: null, xd: p.xd ? 1 : 0 }); P.plants[i] = null; break;
     }
     case 'replant': {
       const idx = nidx();
-      let i = Number.isInteger(b.slot) && b.slot >= 0 && b.slot < P.plants.length && !P.plants[b.slot] ? b.slot : P.plants.findIndex(p => !p);
+      const i = Number.isInteger(b.slot) && b.slot >= 0 && b.slot < P.plants.length && !P.plants[b.slot] ? b.slot : P.plants.findIndex(p => !p);
       if (i < 0) fail('Нет свободной грядки');
       const [p] = P.nursery.splice(idx, 1); p.t = now; P.plants[i] = p; break;
     }
@@ -179,14 +218,35 @@ function act(P, b) {
       const n = lvl(P, k);
       if (n >= u.max) fail('Максимальный уровень');
       pay(u.cost(n));
-      if (k === 'slot') P.plants.push(null); else P[k]++;
+      if (k === 'slot') { P.plants.push(null); P.slotPots.push(0); } else P[k]++;
       break;
     }
-    case 'skin': {
+    case 'skin': { // покупка горшка (надевается отдельно, для каждой грядки)
       const id = b.id;
-      if (!Number.isInteger(id) || id < 0 || id >= SKINS.length) fail('Нет такого горшка');
-      if (!((P.skins >> id) & 1)) { pay(SKINS[id]); P.skins |= 1 << id; }
-      P.pot = id; break;
+      if (!Number.isInteger(id) || id < 1 || id >= SKINS.length) fail('Нет такого горшка');
+      if ((P.skins >> id) & 1) fail('Уже куплен');
+      pay(SKINS[id]); P.skins |= 1 << id; break;
+    }
+    case 'setpot': {
+      const i = slot(), id = b.id;
+      if (!Number.isInteger(id) || id < 0 || id >= SKINS.length || !((P.skins >> id) & 1)) fail('Этот горшок не куплен');
+      P.slotPots[i] = id; break;
+    }
+    case 'buypet': { const id = pet(); if (P.pets[id]) fail('Уже есть'); pay(PETS[id].cost); P.pets[id] = { fed: 0, last: now }; break; }
+    case 'feed': {
+      const id = pet(), pt = P.pets[id]; if (!pt) fail('Сначала заведите питомца');
+      const i = petInfo(P, id, now);
+      if (i.fed > 6 * 3600) fail('Он сыт');
+      pay(PETS[id].feed);
+      if (pt.fed < now) pt.last = now; else pt.last = i.base; // голодному отсчёт подарков начинается с кормления
+      pt.fed = Math.max(pt.fed, now) + FEED_MS; break;
+    }
+    case 'gift': {
+      const id = pet(), pt = P.pets[id]; if (!pt) fail('Сначала заведите питомца');
+      const i = petInfo(P, id, now);
+      if (i.gifts < 1) fail('Подарка пока нет');
+      const c = i.gifts * PETS[id].gift; P.coins += c; P.earned += c; P.stats.pg += i.gifts;
+      pt.last = i.base + i.gifts * PETS[id].every * 1000; break;
     }
     case 'nick': {
       if (P.nickLock) fail('Смена ника запрещена модератором');
@@ -201,9 +261,9 @@ function act(P, b) {
 
 // ---------- профили и лидеры ----------
 function profile(P, self) {
-  const garden = P.plants.map(p => p && { seed: p.seed, r: p.r, g: +p.g.toFixed(3), x: !!p.dead });
+  const garden = P.plants.map(p => p && { seed: p.seed, r: p.r, gn: p.gn | 0, g: +p.g.toFixed(3), x: !!p.dead });
   return {
-    nick: P.nick, since: P.created, online: Date.now() - P.seen < 3e5, pot: P.pot, self: !!self,
+    nick: P.nick, since: P.created, online: Date.now() - P.seen < 3e5, slotPots: P.slotPots, pets: Object.keys(P.pets), self: !!self,
     stats: { ...P.stats, earned: P.earned, harvests: P.harvests, slots: P.plants.length }, garden, gallery: store.gallery(P.id),
   };
 }
@@ -260,7 +320,7 @@ setInterval(() => {
     for (const p of P.plants) {
       if (!p) continue;
       sim(P, p, now);
-      if (!p.dead && p.d && !p.nw && now >= p.d + (GRACE - WARN) * 1000) { p.nw = 1; need = true; touch(P); }
+      if (!p.dead && p.d && !p.nw && now >= p.d + (graceOf(P, p) - WARN) * 1000) { p.nw = 1; need = true; touch(P); }
     }
     if (need) sendPush(P);
   }

@@ -73,6 +73,7 @@ module.exports = function run(a, store) {
         `грядок:    ${P.plants.length}   бак: ${P.tank}   удача: ${P.luck}`,
         `растения:  ${pl.length} (засохло: ${pl.filter(p => p.dead).length}), в питомнике: ${P.nursery.length}`,
         `урожаи:    ${P.stats.hr.join('/')} (обыч/необыч/ред/эпик/лега)   засохло: ${P.stats.wilt}   выкопано: ${P.stats.dug}   потрачено: ${P.stats.spent}`,
+        `селекция:  гибридов ${P.stats.cross}, в банке ${P.bank.length}   питомцы: ${Object.keys(P.pets).join(', ') || '—'}   подарков: ${P.stats.pg}`,
         `пароль:    ${P.pass ? 'задан' : 'НЕТ (старый анонимный аккаунт)'}   устройств: ${store.sessionCount(P.id)}`, `уведомления: ${P.push ? 'вкл' : 'выкл'}`,
         P.banned ? `СТАТУС:    ЗАБЛОКИРОВАН${P.banReason ? ' — ' + P.banReason : ''}` : 'статус:    активен'].join('\n');
     }

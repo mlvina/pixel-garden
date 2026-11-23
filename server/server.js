@@ -48,6 +48,7 @@ const GRACE = 600, WARN = 180; // сек без воды до засыхания
 const VAPID_SUB = process.env.VAPID_SUB || 'mailto:admin@example.com';
 const CATALOG = {
   rar: RAR, seeds: SEEDS, fert: FERT, skins: SKINS, potFx: POT_FX, pets: PETS, grace: GRACE, warn: WARN, tz: GAME_TZ, bankBase: 4, nurseryBase: 2,
+  feedMs: FEED_MS, giftCap: GIFT_CAP, // нужны клиенту, чтобы считать питомцев без ожидания сервера
   upg: Object.fromEntries(Object.entries(UPG).map(([k, u]) => [k, { max: u.max, from: u.from, costs: Array.from({ length: u.max - u.from }, (_, i) => u.cost(u.from + i)) }])),
 };
 const lvl = (P, k) => (k === 'slot' ? P.plants.length : P[k]);
@@ -124,14 +125,15 @@ function view(P) {
     coins: P.coins, slots: P.plants.length, capSec: capSec(P), push: !!P.push, hasPass: !!P.pass, skins: P.skins, slotPots: P.slotPots,
     nick: P.nick, nickLock: !!P.nickLock, nickWait: P.nick ? Math.max(0, Math.ceil((P.nickAt + NICK_COOLDOWN - now) / 1000)) : 0,
     lv: { slot: P.plants.length, tank: P.tank, luck: P.luck, nurs: P.nurs, lamp: P.lamp, mulch: P.mulch, bk: P.bk },
-    ph: { name: ph.name, gm: +ph.gm.toFixed(2), wm: ph.wm, hour: +ph.hour.toFixed(3) }, nurseryCap: nurseryCap(P), bankCap: bankCap(P),
-    nursery: P.nursery.map(p => ({ seed: p.seed, r: p.r, gn: p.gn | 0, g: +p.g.toFixed(4) })), bank: P.bank,
-    pets: Object.fromEntries(Object.keys(P.pets).map(id => { const i = petInfo(P, id, now); return [id, { fed: i.fed, gifts: i.gifts }]; })),
+    now, ph: { name: ph.name, gm: +ph.gm.toFixed(2), wm: ph.wm, hour: +ph.hour.toFixed(3), h: ph.hour }, nurseryCap: nurseryCap(P), bankCap: bankCap(P),
+    nursery: P.nursery.map(p => ({ seed: p.seed, r: p.r, gn: p.gn | 0, g: +p.g.toFixed(4), w: +p.w.toFixed(4), xd: p.xd ? 1 : 0 })), bank: P.bank,
+    pets: Object.fromEntries(Object.keys(P.pets).map(id => { const i = petInfo(P, id, now); return [id, { fed: i.fed, gifts: i.gifts, fe: P.pets[id].fed, la: P.pets[id].last }]; })),
     stats: { ...P.stats, earned: P.earned, harvests: P.harvests },
     plants: P.plants.map(p => p && {
       seed: p.seed, r: p.r, gn: p.gn | 0, xd: !!p.xd, g: +p.g.toFixed(4), w: +p.w.toFixed(4), v: value(P, p), x: !!p.dead, gr: graceOf(P, p),
       l: !p.dead && p.d ? Math.max(0, Math.ceil(graceOf(P, p) - (now - p.d) / 1000)) : null, // секунд до засыхания
-      f: p.fx && p.fx.until > now ? { m: p.fx.m, l: Math.ceil((p.fx.until - now) / 1000) } : null,
+      f: p.fx && p.fx.until > now ? { m: p.fx.m, l: Math.ceil((p.fx.until - now) / 1000), u: p.fx.until } : null,
+      d: p.dead ? 0 : p.d || 0, // момент, когда кончилась вода (мс): клиент по нему досчитывает засыхание сам
     }),
   };
 }
@@ -422,6 +424,17 @@ const server = http.createServer(async (req, res) => {
     switch (url) {
       case '/api/state': return send(res, 200, view(P));
       case '/api/act': act(P, b); touch(P); return send(res, 200, view(P));
+      case '/api/acts': { // пачка действий от клиента, который уже применил их у себя; ошибки по одному действию не рвут остальные
+        if (!Array.isArray(b.list) || b.list.length > 20) fail('Некорректный запрос');
+        const bid = typeof b.bid === 'string' && b.bid.length <= 32 ? b.bid : null;
+        if (bid && P.bid === bid) return send(res, 200, { ...view(P), res: P.bres }); // повтор после обрыва связи: не выполняем второй раз
+        const out = b.list.map(x => {
+          try { if (!x || typeof x !== 'object' || Array.isArray(x)) fail('Некорректное действие'); act(P, x); return 0; }
+          catch (e) { if (e && e.user) return e.user; throw e; }
+        });
+        touch(P); if (bid) { P.bid = bid; P.bres = out; }
+        return send(res, 200, { ...view(P), res: out });
+      }
       case '/api/logout': store.sessionDel(hash); return send(res, 200, {});
       case '/api/claim': { // игроки старых версий (без пароля) превращают аккаунт в защищённый
         if (P.pass) fail('Пароль уже задан');

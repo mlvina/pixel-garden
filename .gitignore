@@ -2,3 +2,9 @@ data/
 backups/
 incoming/
 update.env
+update.log
+.installed-*
+.update.lock
+# графика и звуки сторонних авторов — не публикуем в репозитории (проверьте их лицензию)
+site/ui/
+site/sfx/
